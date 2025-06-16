@@ -34,7 +34,12 @@ def _prepare_targets(
     tt: List[float] = []
     cr: List[int | float] = []
     for e in snap.edges:
-        feat = snap.dynamic_edge_feat[e]
+        feat = snap.dynamic_edge_feat.get(e)
+        if feat is None or len(feat) == 0:
+            # Skip edges without dynamic data to avoid index errors during
+            # training.  This mirrors the behaviour of ``encode_snapshot``
+            # which uses zeros when no features are available.
+            continue
         edges.append(e)
 
         # Always expect at least one dynamic feature for travel/ delay time
