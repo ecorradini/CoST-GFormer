@@ -1,6 +1,7 @@
 """Base package for the CoST-GFormer project."""
 
 from .data import DataModule
+from .gtfs import load_gtfs
 from .graph import ExpandedGraph, DynamicGraphHandler
 from .embedding import Embedding, SpatioTemporalEmbedding
 from .attention import Attention, UnifiedSpatioTemporalAttention
@@ -26,4 +27,5 @@ __all__ = [
     "cross_entropy_loss",
     "CoSTGFormer",
     "Trainer",
+    "load_gtfs",
 ]
