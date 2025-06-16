@@ -1,4 +1,8 @@
-"""Simple training script for GTFS datasets using the lightweight Trainer."""
+"""Simple training script for GTFS datasets using the lightweight Trainer.
+
+This entry point supports arbitrary forecasting horizons using the ``--horizon``
+flag and relies on the updated :class:`Trainer` for multi-step targets.
+"""
 
 from __future__ import annotations
 
