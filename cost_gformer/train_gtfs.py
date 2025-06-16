@@ -24,6 +24,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--horizon", type=int, default=1, help="Forecast horizon")
     p.add_argument("--epochs", type=int, default=5, help="Training epochs")
     p.add_argument("--lr", type=float, default=0.01, help="Learning rate")
+    p.add_argument("--batch-size", type=int, default=1, help="Batch size")
+    p.add_argument(
+        "--lr-step-size",
+        type=int,
+        default=0,
+        metavar="N",
+        help="StepLR step size (0 to disable)",
+    )
+    p.add_argument(
+        "--lr-gamma", type=float, default=0.95, help="StepLR decay factor"
+    )
     p.add_argument(
         "--device",
         choices=["cpu", "cuda"],
@@ -63,12 +74,17 @@ def main() -> None:
     dataset = load_gtfs(args.static, args.realtime)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
     model = CoSTGFormer()
+    schedule = None
+    if args.lr_step_size > 0:
+        schedule = {"step_size": args.lr_step_size, "gamma": args.lr_gamma}
     trainer = Trainer(
         model=model,
         data=data,
         lr=args.lr,
         epochs=args.epochs,
+        batch_size=args.batch_size,
         classification=not args.regression,
+        lr_schedule=schedule,
         device=args.device,
     )
     trainer.fit()

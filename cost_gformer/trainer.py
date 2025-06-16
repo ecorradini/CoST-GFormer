@@ -1,14 +1,9 @@
-"""Simple training utilities for CoST-GFormer.
-
-This module provides a lightweight trainer that optimises only the output
-heads of the model using plain numpy. It is purely for demonstration and not
-intended for large-scale use.
-"""
+"""PyTorch trainer utilities for CoST-GFormer."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Iterable, Dict
 
 import logging
 
@@ -17,50 +12,19 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     tqdm = None
 
-logger = logging.getLogger(__name__)
-
-import numpy as np  # for dataset handling
+import numpy as np
 import torch
+import torch.nn.functional as F
 
 from .data import DataModule, GraphSnapshot
 from .embedding import SpatioTemporalEmbedding
 from .model import CoSTGFormer
 
-
-# ---------------------------------------------------------------------------
-# Helper functions for manual backpropagation of the tiny MLPs
-# ---------------------------------------------------------------------------
-
-def _mlp_forward(mlp, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    hidden = torch.relu(x @ mlp.w1.to(x.device) + mlp.b1.to(x.device))
-    out = hidden @ mlp.w2.to(x.device) + mlp.b2.to(x.device)
-
-    return hidden, out
-
-
-def _mlp_backward(
-    mlp, x: torch.Tensor, hidden: torch.Tensor, grad_out: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    grad_w2 = torch.outer(hidden, grad_out)
-    grad_b2 = grad_out
-    w2 = mlp.w2.to(x.device)
-    grad_hidden = grad_out @ w2.T
-    grad_hidden = torch.where(hidden <= 0.0, torch.zeros_like(grad_hidden), grad_hidden)
-    grad_w1 = torch.outer(x, grad_hidden)
-    grad_b1 = grad_hidden
-    return grad_w1, grad_b1, grad_w2, grad_b2
-
-
-def _update_mlp(mlp, grads, lr: float) -> None:
-    gw1, gb1, gw2, gb2 = grads
-    mlp.w1 -= lr * gw1.to(mlp.w1.device)
-    mlp.b1 -= lr * gb1.to(mlp.b1.device)
-    mlp.w2 -= lr * gw2.to(mlp.w2.device)
-    mlp.b2 -= lr * gb2.to(mlp.b2.device)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Target extraction
+# Utility functions
 # ---------------------------------------------------------------------------
 
 def _prepare_targets(
@@ -93,13 +57,15 @@ def _prepare_targets(
 # ---------------------------------------------------------------------------
 @dataclass
 class Trainer:
-    """Very small trainer using SGD on the output heads."""
+    """Simple trainer optimising only the output heads."""
 
     model: CoSTGFormer
     data: DataModule
     lr: float = 0.01
     epochs: int = 5
+    batch_size: int = 1
     classification: bool = True
+    lr_schedule: Dict[str, float] | None = None
     device: str | torch.device = "cpu"
 
     def __post_init__(self) -> None:
@@ -108,6 +74,8 @@ class Trainer:
         split = int(n * 0.8)
         self.train_idx = list(range(0, split))
         self.val_idx = list(range(split, n))
+
+        # Ensure an embedding module is present
         self.stm = self.model.embedding
         if self.stm is None:
             first = self.data.dataset[0]
@@ -121,70 +89,65 @@ class Trainer:
             )
             self.model.embedding = self.stm
 
-    # --------------------------------------------------------------
-    def _run_batch(
-        self,
-        history: List[GraphSnapshot],
-        target_snap: GraphSnapshot,
-        update: bool,
-    ) -> Tuple[float, float, float, float, int]:
-        embeddings = torch.from_numpy(self.stm.encode_window(history)).to(self.device)
-        current = embeddings[-1]
-        edges, tt_tgt, cr_tgt = _prepare_targets(
-            target_snap, self.model.crowd_head.num_classes, self.classification
-        )
-        loss = 0.0
-        preds_tt: List[float] = []
-        preds_cr: List[int] = []
-        n_edges = len(edges)
-        for (u, v), tt, cr in zip(edges, tt_tgt, cr_tgt):
-            x = torch.cat([current[u], current[v]])
-            # Travel time regression
-            h_tt, pred_tt = _mlp_forward(self.model.travel_head.mlp, x)
-            pred_tt_val = float(pred_tt.squeeze().cpu())
-            preds_tt.append(pred_tt_val)
-            l_tt = (pred_tt_val - tt) ** 2
-            grad_tt = 2.0 * (pred_tt_val - tt)
-            if update:
-                grads = _mlp_backward(
-                    self.model.travel_head.mlp,
-                    x,
-                    h_tt,
-                    torch.tensor([grad_tt], dtype=torch.float32, device=self.device),
-                )
-                _update_mlp(self.model.travel_head.mlp, grads, self.lr)
-            # Crowding prediction
-            h_cr, logits = _mlp_forward(self.model.crowd_head.mlp, x)
-            if self.classification:
-                logits = logits.squeeze()
-                exp = torch.exp(logits - logits.max())
-                probs = exp / exp.sum()
-                l_cr = -float(torch.log(probs[int(cr)]))
-                grad_logits = probs
-                grad_logits[int(cr)] -= 1.0
-                preds_cr.append(int(torch.argmax(logits).cpu()))
-            else:
-                pred = float(logits.squeeze().cpu())
-                l_cr = (pred - cr) ** 2
-                grad_logits = 2.0 * (pred - cr)
-            if update:
-                grads = _mlp_backward(
-                    self.model.crowd_head.mlp, x, h_cr, grad_logits
-                )
-                _update_mlp(self.model.crowd_head.mlp, grads, self.lr)
-            loss += l_tt + l_cr
-
-        if preds_tt:
-            diff = torch.tensor(preds_tt, dtype=torch.float32) - torch.from_numpy(tt_tgt)
-            mae_tt = float(diff.abs().mean())
-            rmse_tt = float(torch.sqrt((diff ** 2).mean()))
+        # Collect trainable parameters
+        params = [
+            self.model.travel_head.mlp.w1,
+            self.model.travel_head.mlp.b1,
+            self.model.travel_head.mlp.w2,
+            self.model.travel_head.mlp.b2,
+            self.model.crowd_head.mlp.w1,
+            self.model.crowd_head.mlp.b1,
+            self.model.crowd_head.mlp.w2,
+            self.model.crowd_head.mlp.b2,
+        ]
+        for p in params:
+            p.requires_grad_(True)
+        self.optimizer = torch.optim.Adam(params, lr=self.lr)
+        if self.lr_schedule is not None:
+            step = int(self.lr_schedule.get("step_size", 1))
+            gamma = float(self.lr_schedule.get("gamma", 0.95))
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer, step_size=step, gamma=gamma
+            )
         else:
-            mae_tt = 0.0
-            rmse_tt = 0.0
-        acc_cr = 0.0
-        if self.classification and preds_cr:
-            acc_cr = float((torch.tensor(preds_cr) == torch.from_numpy(cr_tgt)).float().mean())
-        return float(loss / n_edges), mae_tt, rmse_tt, acc_cr, n_edges
+            self.scheduler = None
+
+    # --------------------------------------------------------------
+    def _forward_single(
+        self, history: List[GraphSnapshot], target: GraphSnapshot
+    ) -> Tuple[torch.Tensor, float, float, float, int]:
+        with torch.no_grad():
+            embeds = torch.from_numpy(self.stm.encode_window(history)).to(self.device)
+            current = embeds[-1]
+        edges, tt_tgt, cr_tgt = _prepare_targets(
+            target, self.model.crowd_head.num_classes, self.classification
+        )
+        if len(edges) == 0:
+            return torch.tensor(0.0), 0.0, 0.0, 0.0, 0
+
+        idx_u = torch.tensor(edges[:, 0], device=self.device)
+        idx_v = torch.tensor(edges[:, 1], device=self.device)
+        pairs = torch.cat([current[idx_u], current[idx_v]], dim=1)
+
+        pred_tt = self.model.travel_head.mlp(pairs).squeeze(-1)
+        tt_tgt_t = torch.from_numpy(tt_tgt).to(self.device)
+        l_tt = F.mse_loss(pred_tt, tt_tgt_t)
+        mae_tt = F.l1_loss(pred_tt, tt_tgt_t).item()
+        rmse_tt = torch.sqrt(F.mse_loss(pred_tt, tt_tgt_t)).item()
+
+        logits = self.model.crowd_head.mlp(pairs)
+        if self.classification:
+            cr_t = torch.from_numpy(cr_tgt).long().to(self.device)
+            l_cr = F.cross_entropy(logits, cr_t)
+            acc = (logits.argmax(dim=1) == cr_t).float().mean().item()
+        else:
+            cr_t = torch.from_numpy(cr_tgt).to(self.device)
+            pred = logits.squeeze(-1)
+            l_cr = F.mse_loss(pred, cr_t)
+            acc = 0.0
+
+        loss = l_tt + l_cr
+        return loss, mae_tt, rmse_tt, acc, len(edges)
 
     # --------------------------------------------------------------
     def train_epoch(self) -> Tuple[float, float, float, float]:
@@ -193,23 +156,34 @@ class Trainer:
         tt_rmse = 0.0
         cr_acc = 0.0
         n_samples = 0
-        for idx in self.train_idx:
-            hist, fut = self.data[idx]
-            loss, mae, rmse, acc, n = self._run_batch(hist, fut[0], update=True)
-            total += loss
-            tt_mae += mae * n
-            tt_rmse += rmse * n
-            cr_acc += acc * n
-            n_samples += n
+
+        for i in range(0, len(self.train_idx), self.batch_size):
+            batch = self.train_idx[i : i + self.batch_size]
+            self.optimizer.zero_grad()
+            batch_loss = 0.0
+            for idx in batch:
+                hist, fut = self.data[idx]
+                loss, mae, rmse, acc, n = self._forward_single(hist, fut[0])
+                batch_loss = batch_loss + loss
+                tt_mae += mae * n
+                tt_rmse += rmse * n
+                cr_acc += acc * n
+                n_samples += n
+            if n_samples > 0:
+                batch_loss.backward()
+                self.optimizer.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
         if n_samples == 0:
             return 0.0, 0.0, 0.0, 0.0
         return (
-            total / len(self.train_idx),
+            float(batch_loss.item()) / max(1, len(self.train_idx)),
             tt_mae / n_samples,
             tt_rmse / n_samples,
             cr_acc / n_samples,
         )
 
+    # --------------------------------------------------------------
     def val_epoch(self) -> Tuple[float, float, float, float]:
         if not self.val_idx:
             return 0.0, 0.0, 0.0, 0.0
@@ -218,14 +192,15 @@ class Trainer:
         tt_rmse = 0.0
         cr_acc = 0.0
         n_samples = 0
-        for idx in self.val_idx:
-            hist, fut = self.data[idx]
-            loss, mae, rmse, acc, n = self._run_batch(hist, fut[0], update=False)
-            total += loss
-            tt_mae += mae * n
-            tt_rmse += rmse * n
-            cr_acc += acc * n
-            n_samples += n
+        with torch.no_grad():
+            for idx in self.val_idx:
+                hist, fut = self.data[idx]
+                loss, mae, rmse, acc, n = self._forward_single(hist, fut[0])
+                total += float(loss)
+                tt_mae += mae * n
+                tt_rmse += rmse * n
+                cr_acc += acc * n
+                n_samples += n
         if n_samples == 0:
             return 0.0, 0.0, 0.0, 0.0
         return (
@@ -235,6 +210,7 @@ class Trainer:
             cr_acc / n_samples,
         )
 
+    # --------------------------------------------------------------
     def fit(self) -> None:
         epoch_iter = range(1, self.epochs + 1)
         pbar = None
@@ -261,7 +237,6 @@ class Trainer:
             logger.info(msg)
             if pbar is not None:
                 pbar.set_postfix(train_loss=t_loss, val_loss=v_loss)
-
 
 
 __all__ = ["Trainer"]
