@@ -112,18 +112,22 @@ class Trainer:
         history: List[GraphSnapshot],
         target_snap: GraphSnapshot,
         update: bool,
-    ) -> float:
+    ) -> Tuple[float, float, float, float, int]:
         embeddings = self.stm.encode_window(history)
         current = embeddings[-1]
         edges, tt_tgt, cr_tgt = _prepare_targets(
             target_snap, self.model.crowd_head.num_classes, self.classification
         )
         loss = 0.0
+        preds_tt: List[float] = []
+        preds_cr: List[int] = []
+        n_edges = len(edges)
         for (u, v), tt, cr in zip(edges, tt_tgt, cr_tgt):
             x = np.concatenate([current[u], current[v]])
             # Travel time regression
             h_tt, pred_tt = _mlp_forward(self.model.travel_head.mlp, x)
             pred_tt = float(pred_tt.squeeze())
+            preds_tt.append(pred_tt)
             l_tt = (pred_tt - tt) ** 2
             grad_tt = 2.0 * (pred_tt - tt)
             if update:
@@ -143,6 +147,7 @@ class Trainer:
                 l_cr = -np.log(probs[int(cr)])
                 grad_logits = probs
                 grad_logits[int(cr)] -= 1.0
+                preds_cr.append(int(np.argmax(logits)))
             else:
                 pred = float(logits.squeeze())
                 l_cr = (pred - cr) ** 2
@@ -153,30 +158,81 @@ class Trainer:
                 )
                 _update_mlp(self.model.crowd_head.mlp, grads, self.lr)
             loss += l_tt + l_cr
-        return float(loss / len(edges))
+
+        mae_tt = float(np.mean(np.abs(np.array(preds_tt) - tt_tgt))) if preds_tt else 0.0
+        rmse_tt = float(np.sqrt(np.mean((np.array(preds_tt) - tt_tgt) ** 2))) if preds_tt else 0.0
+        acc_cr = 0.0
+        if self.classification and preds_cr:
+            acc_cr = float(np.mean(np.array(preds_cr) == cr_tgt))
+        return float(loss / n_edges), mae_tt, rmse_tt, acc_cr, n_edges
 
     # --------------------------------------------------------------
-    def train_epoch(self) -> float:
+    def train_epoch(self) -> Tuple[float, float, float, float]:
         total = 0.0
+        tt_mae = 0.0
+        tt_rmse = 0.0
+        cr_acc = 0.0
+        n_samples = 0
         for idx in self.train_idx:
             hist, fut = self.data[idx]
-            total += self._run_batch(hist, fut[0], update=True)
-        return total / len(self.train_idx)
+            loss, mae, rmse, acc, n = self._run_batch(hist, fut[0], update=True)
+            total += loss
+            tt_mae += mae * n
+            tt_rmse += rmse * n
+            cr_acc += acc * n
+            n_samples += n
+        if n_samples == 0:
+            return 0.0, 0.0, 0.0, 0.0
+        return (
+            total / len(self.train_idx),
+            tt_mae / n_samples,
+            tt_rmse / n_samples,
+            cr_acc / n_samples,
+        )
 
-    def val_epoch(self) -> float:
+    def val_epoch(self) -> Tuple[float, float, float, float]:
         if not self.val_idx:
-            return 0.0
+            return 0.0, 0.0, 0.0, 0.0
         total = 0.0
+        tt_mae = 0.0
+        tt_rmse = 0.0
+        cr_acc = 0.0
+        n_samples = 0
         for idx in self.val_idx:
             hist, fut = self.data[idx]
-            total += self._run_batch(hist, fut[0], update=False)
-        return total / len(self.val_idx)
+            loss, mae, rmse, acc, n = self._run_batch(hist, fut[0], update=False)
+            total += loss
+            tt_mae += mae * n
+            tt_rmse += rmse * n
+            cr_acc += acc * n
+            n_samples += n
+        if n_samples == 0:
+            return 0.0, 0.0, 0.0, 0.0
+        return (
+            total / len(self.val_idx),
+            tt_mae / n_samples,
+            tt_rmse / n_samples,
+            cr_acc / n_samples,
+        )
 
     def fit(self) -> None:
         for epoch in range(1, self.epochs + 1):
-            train_loss = self.train_epoch()
-            val_loss = self.val_epoch()
-            print(f"Epoch {epoch:02d} - train: {train_loss:.4f} - val: {val_loss:.4f}")
+            t_loss, t_mae, t_rmse, t_acc = self.train_epoch()
+            v_loss, v_mae, v_rmse, v_acc = self.val_epoch()
+            print(
+                "Epoch %02d - train loss: %.4f mae: %.4f rmse: %.4f acc: %.4f - val loss: %.4f mae: %.4f rmse: %.4f acc: %.4f"
+                % (
+                    epoch,
+                    t_loss,
+                    t_mae,
+                    t_rmse,
+                    t_acc,
+                    v_loss,
+                    v_mae,
+                    v_rmse,
+                    v_acc,
+                )
+            )
 
 
 __all__ = ["Trainer"]
