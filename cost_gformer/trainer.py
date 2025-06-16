@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .data import DataModule, GraphSnapshot
+from .data import DataModule, GraphSnapshot, Edge
 from .embedding import SpatioTemporalEmbedding
 from .model import CoSTGFormer
 
@@ -80,10 +80,25 @@ class Trainer:
         if self.stm is None:
             first = self.data.dataset[0]
             dyn_dim = len(next(iter(first.dynamic_edge_feat.values())))
-            num_nodes = len({u for u, _ in first.edges} | {v for _, v in first.edges})
+
+            # Collect all nodes and edges across the dataset to properly size the
+            # embedding module even when the first snapshot is sparse.
+            all_edges: set[Edge] = set()
+            all_nodes: set[int] = set()
+            for snap in self.data.dataset.snapshots:
+                all_edges.update(snap.edges)
+                for u, v in snap.edges:
+                    all_nodes.add(u)
+                    all_nodes.add(v)
+
+            if not all_nodes:
+                raise ValueError("dataset contains no nodes")
+
+            num_nodes = max(all_nodes) + 1
+
             self.stm = SpatioTemporalEmbedding(
                 num_nodes=num_nodes,
-                static_edges=first.edges,
+                static_edges=all_edges,
                 dynamic_dim=dyn_dim,
                 device=self.device,
             )
