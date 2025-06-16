@@ -1,7 +1,11 @@
 """Example usage of the CoST-GFormer package."""
 
-from cost_gformer import CoSTGFormer, DataModule, SpatioTemporalEmbedding
-from cost_gformer.data import generate_synthetic_dataset
+from cost_gformer import (
+    CoSTGFormer,
+    DataModule,
+    SpatioTemporalEmbedding,
+    ExpandedGraph,
+)
 from cost_gformer.data import generate_synthetic_dataset
 
 
@@ -19,6 +23,9 @@ def main() -> None:
     stm = SpatioTemporalEmbedding(num_nodes=4, static_edges=static_edges, dynamic_dim=dyn_dim)
     embeddings = stm.encode_window(history)
 
+    # Construct expanded spatio-temporal graph using the same window
+    graph = ExpandedGraph(history, num_nodes=4)
+
     model = CoSTGFormer()
 
     print("Number of samples:", len(data))
@@ -26,6 +33,8 @@ def main() -> None:
     print("Future length:", len(future))
     print("Embeddings shape:", embeddings.shape)
     print("Model:", model)
+    print("Expanded nodes:", graph.num_expanded_nodes)
+    print("Edge index shape:", graph.edge_index().shape)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation
