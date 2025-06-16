@@ -14,8 +14,9 @@ Clone the repository and install the dependencies:
 pip install -r requirements.txt
 ```
 
-The project relies only on `numpy`, `torch` and a few helper libraries used in
-the tests and GTFS loader.
+The project relies on `numpy`, `torch`, `scipy` and a few helper libraries used
+in the tests and GTFS loader.  `scipy` is required for the optional sparse
+eigen decomposition used when computing spectral node embeddings.
 
 ## Running the demo
 
@@ -57,6 +58,11 @@ Key command line options include:
 - `--lr` – learning rate for the SGD trainer.
 - `--device` – choose `cpu` or `cuda`.
 - `--regression` – use regression instead of classification for crowd level.
+
+The spatio-temporal embedding module also exposes a `use_sparse` flag. When
+enabled (the default) and the graph is large, spectral coordinates are computed
+with `scipy.sparse.linalg.eigsh` for efficiency. Setting the flag to
+``False`` forces a dense eigen decomposition instead.
 
 The training script employs a lightweight NumPy based trainer.  When run on the
 small GTFS example used in the unit tests the model reaches around 50&nbsp;s mean
