@@ -36,14 +36,24 @@ def _prepare_targets(
     for e in snap.edges:
         feat = snap.dynamic_edge_feat[e]
         edges.append(e)
+
+        # Always expect at least one dynamic feature for travel/ delay time
+        if len(feat) < 1:
+            raise ValueError("dynamic edge feature must contain at least one value")
         tt.append(float(feat[0]))
+
+        # Handle optional crowd targets gracefully.  If the feature vector
+        # contains fewer than two elements we default to 0 as no crowd data is
+        # available.
+        crowd_val = float(feat[1]) if len(feat) > 1 else 0.0
+
         if classification:
-            label = int(feat[1] * num_classes)
+            label = int(crowd_val * num_classes)
             if label >= num_classes:
                 label = num_classes - 1
             cr.append(label)
         else:
-            cr.append(float(feat[1]))
+            cr.append(crowd_val)
     arr_edges = np.array(edges, dtype=np.int64)
     tt_tgt = np.array(tt, dtype=np.float32)
     cr_tgt = (
