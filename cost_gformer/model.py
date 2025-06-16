@@ -20,7 +20,7 @@ class CoSTGFormer:
 
     def __init__(self, heads: int = 8, embedding: Embedding | None = None, num_nodes: int | None = None):
         self.embedding = embedding
-        embed_dim = self.embedding.mlp.b2.size if embedding else 32
+        embed_dim = self.embedding.mlp.b2.numel() if embedding else 32
         self.attention = Attention(heads=heads)
         self.usta = UnifiedSpatioTemporalAttention(embed_dim=embed_dim, num_heads=heads)
         self.stm = ShortTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)

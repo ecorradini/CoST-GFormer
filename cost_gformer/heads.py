@@ -10,36 +10,51 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import numpy as np
+import torch
 
 
 @dataclass
 class MLP:
     """Simple two-layer multilayer perceptron."""
 
-    w1: np.ndarray
-    b1: np.ndarray
-    w2: np.ndarray
-    b2: np.ndarray
+    w1: torch.Tensor
+    b1: torch.Tensor
+    w2: torch.Tensor
+    b2: torch.Tensor
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        hidden = np.maximum(0.0, x @ self.w1 + self.b1)
+    def __call__(self, x: "np.ndarray | torch.Tensor") -> "np.ndarray | torch.Tensor":
+        if isinstance(x, np.ndarray):
+            x_t = torch.from_numpy(x).to(self.w1.device)
+            hidden = torch.relu(x_t @ self.w1 + self.b1)
+            out = hidden @ self.w2 + self.b2
+            return out.cpu().numpy()
+        hidden = torch.relu(x @ self.w1 + self.b1)
         return hidden @ self.w2 + self.b2
 
 
 class TravelTimeHead:
     """Regress edge travel time via a small MLP."""
 
-    def __init__(self, embed_dim: int, hidden_dim: int = 64) -> None:
+    def __init__(self, embed_dim: int, hidden_dim: int = 64, device: str | torch.device = "cpu") -> None:
         in_dim = 2 * embed_dim
         rng = np.random.default_rng(0)
-        w1 = rng.standard_normal((in_dim, hidden_dim), dtype=np.float32) / np.sqrt(in_dim)
-        b1 = np.zeros(hidden_dim, dtype=np.float32)
-        w2 = rng.standard_normal((hidden_dim, 1), dtype=np.float32) / np.sqrt(hidden_dim)
-        b2 = np.zeros(1, dtype=np.float32)
-        self.mlp = MLP(w1, b1, w2, b2)
+        w1 = torch.from_numpy(
+            rng.standard_normal((in_dim, hidden_dim), dtype=np.float32)
+        ) / torch.sqrt(torch.tensor(in_dim, dtype=torch.float32))
+        b1 = torch.zeros(hidden_dim, dtype=torch.float32)
+        w2 = torch.from_numpy(
+            rng.standard_normal((hidden_dim, 1), dtype=np.float32)
+        ) / torch.sqrt(torch.tensor(hidden_dim, dtype=torch.float32))
+        b2 = torch.zeros(1, dtype=torch.float32)
+        device = torch.device(device)
+        self.mlp = MLP(w1.to(device), b1.to(device), w2.to(device), b2.to(device))
 
-    def __call__(self, u_emb: np.ndarray, v_emb: np.ndarray) -> np.ndarray:
-        x = np.concatenate([u_emb, v_emb], axis=-1)
+    def __call__(self, u_emb: "np.ndarray | torch.Tensor", v_emb: "np.ndarray | torch.Tensor") -> "np.ndarray | torch.Tensor":
+        if isinstance(u_emb, np.ndarray):
+            x = np.concatenate([u_emb, v_emb], axis=-1)
+            out = self.mlp(x)
+            return out.squeeze(-1)
+        x = torch.cat([u_emb, v_emb])
         out = self.mlp(x)
         return out.squeeze(-1)
 
@@ -47,20 +62,29 @@ class TravelTimeHead:
 class CrowdingHead:
     """Predict crowding level either as classification or regression."""
 
-    def __init__(self, embed_dim: int, hidden_dim: int = 64, num_classes: int = 3) -> None:
+    def __init__(self, embed_dim: int, hidden_dim: int = 64, num_classes: int = 3, device: str | torch.device = "cpu") -> None:
         if num_classes <= 0:
             raise ValueError("num_classes must be positive")
         in_dim = 2 * embed_dim
         rng = np.random.default_rng(1)
-        w1 = rng.standard_normal((in_dim, hidden_dim), dtype=np.float32) / np.sqrt(in_dim)
-        b1 = np.zeros(hidden_dim, dtype=np.float32)
-        w2 = rng.standard_normal((hidden_dim, num_classes), dtype=np.float32) / np.sqrt(hidden_dim)
-        b2 = np.zeros(num_classes, dtype=np.float32)
-        self.mlp = MLP(w1, b1, w2, b2)
+        w1 = torch.from_numpy(
+            rng.standard_normal((in_dim, hidden_dim), dtype=np.float32)
+        ) / torch.sqrt(torch.tensor(in_dim, dtype=torch.float32))
+        b1 = torch.zeros(hidden_dim, dtype=torch.float32)
+        w2 = torch.from_numpy(
+            rng.standard_normal((hidden_dim, num_classes), dtype=np.float32)
+        ) / torch.sqrt(torch.tensor(hidden_dim, dtype=torch.float32))
+        b2 = torch.zeros(num_classes, dtype=torch.float32)
+        device = torch.device(device)
+        self.mlp = MLP(w1.to(device), b1.to(device), w2.to(device), b2.to(device))
         self.num_classes = num_classes
 
-    def __call__(self, u_emb: np.ndarray, v_emb: np.ndarray) -> np.ndarray:
-        x = np.concatenate([u_emb, v_emb], axis=-1)
+    def __call__(self, u_emb: "np.ndarray | torch.Tensor", v_emb: "np.ndarray | torch.Tensor") -> "np.ndarray | torch.Tensor":
+        if isinstance(u_emb, np.ndarray):
+            x = np.concatenate([u_emb, v_emb], axis=-1)
+            out = self.mlp(x)
+            return out
+        x = torch.cat([u_emb, v_emb])
         out = self.mlp(x)
         return out
 
