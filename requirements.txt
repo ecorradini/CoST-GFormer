@@ -1,0 +1,4 @@
+numpy
+protobuf
+gtfs-realtime-bindings
+pytest
