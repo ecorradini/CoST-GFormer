@@ -34,16 +34,27 @@ def _prepare_targets(
     tt: List[float] = []
     cr: List[int | float] = []
     for e in snap.edges:
-        feat = snap.dynamic_edge_feat[e]
+        feat = snap.dynamic_edge_feat.get(e)
+        if feat is None or len(feat) == 0:
+            # Skip edges without dynamic data to avoid index errors during
+            # training.  This mirrors the behaviour of ``encode_snapshot``
+            # which uses zeros when no features are available.
+            continue
         edges.append(e)
         tt.append(float(feat[0]))
+
+        # Handle optional crowd targets gracefully.  If the feature vector
+        # contains fewer than two elements we default to 0 as no crowd data is
+        # available.
+        crowd_val = float(feat[1]) if len(feat) > 1 else 0.0
+
         if classification:
-            label = int(feat[1] * num_classes)
+            label = int(crowd_val * num_classes)
             if label >= num_classes:
                 label = num_classes - 1
             cr.append(label)
         else:
-            cr.append(float(feat[1]))
+            cr.append(crowd_val)
     arr_edges = np.array(edges, dtype=np.int64)
     tt_tgt = np.array(tt, dtype=np.float32)
     cr_tgt = (
