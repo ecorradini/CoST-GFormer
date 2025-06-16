@@ -58,3 +58,45 @@ Unit tests are located in the `tests/` directory and can be run with
 pytest
 ```
 
+
+## Sample GTFS dataset
+
+A tiny GTFS feed used in the unit tests is provided under `sample_data/gtfs/`.
+It contains just three stops and a single trip with real-time delays.  The
+files can be used for quick experiments or to verify the evaluation script.
+
+## Evaluation
+
+Once a model has been trained and saved with `torch.save`, it can be evaluated
+on a held-out GTFS dataset using `evaluate.py`:
+
+```bash
+python evaluate.py MODEL_PATH PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED]
+```
+
+For example, after training on the sample data you might run:
+
+```bash
+python -m cost_gformer.train_gtfs sample_data/gtfs sample_data/gtfs/rt.pb --epochs 2
+python - <<'PY'
+import torch
+from cost_gformer.trainer import Trainer
+from cost_gformer.data import DataModule
+from cost_gformer.gtfs import load_gtfs
+from cost_gformer.model import CoSTGFormer
+
+dataset = load_gtfs('sample_data/gtfs', 'sample_data/gtfs/rt.pb')
+data = DataModule(dataset, history=3, horizon=1)
+model = CoSTGFormer()
+trainer = Trainer(model=model, data=data, epochs=2)
+trainer.fit()
+torch.save(trainer.model, 'model.pth')
+PY
+python evaluate.py model.pth sample_data/gtfs sample_data/gtfs/rt.pb
+```
+
+A well-trained model on this toy dataset should obtain around `50s` mean
+absolute error, about `60s` RMSE and close to `100%` crowding accuracy.
+Slight variations are expected depending on the random seed and training
+settings.
+
