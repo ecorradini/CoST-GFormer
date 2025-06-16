@@ -33,8 +33,8 @@ class CoSTGFormer:
         self.travel_head = TravelTimeHead(embed_dim)
         self.crowd_head = CrowdingHead(embed_dim)
 
-    def forward(self, history: "list[GraphSnapshot]"):
-        """Predict travel time and crowding for the next step.
+    def forward(self, history: "list[GraphSnapshot]", horizon: int = 1):
+        """Predict travel time and crowding for ``horizon`` future steps.
 
         Parameters
         ----------
@@ -44,8 +44,8 @@ class CoSTGFormer:
         Returns
         -------
         Tuple[np.ndarray, np.ndarray]
-            Travel time and crowding predictions for the edges of the latest
-            snapshot in ``history``.
+            Arrays of travel time and crowding predictions with shape
+            ``(horizon, num_edges)``.
         """
 
         if self.embedding is None:
@@ -54,39 +54,38 @@ class CoSTGFormer:
         # ------------------------------------------------------------------
         # 1) Compute spatio-temporal node embeddings for the input window
         # ------------------------------------------------------------------
+        if horizon <= 0 or len(history) < horizon:
+            raise ValueError("invalid horizon")
+
         embeds = self.embedding.encode_window(history)
-
-        # Update short and long term memories with each step
-        for step in embeds:
-            self.stm.write(step)
-            self.ltm.write(step)
-
-        # ------------------------------------------------------------------
-        # 2) Apply unified spatio-temporal attention over all embeddings
-        # ------------------------------------------------------------------
         n_steps, num_nodes, dim = embeds.shape
-        attended = self.usta(embeds.reshape(-1, dim)).reshape(n_steps, num_nodes, dim)
+        tt_preds: list[np.ndarray] = []
+        cr_preds: list[np.ndarray] = []
 
-        # 3) Retrieve STM context and fuse with LTM for the latest step
-        latest = attended[-1]
-        stm_ctx = self.stm.read_all()
-        fused = 0.5 * latest + 0.5 * stm_ctx
-        for v in range(num_nodes):
-            fused[v] = self.ltm.fuse(v, fused[v])
+        for t in range(n_steps):
+            self.stm.write(embeds[t])
+            self.ltm.write(embeds[t])
+            attended = self.usta(embeds[: t + 1].reshape(-1, dim)).reshape(
+                t + 1, num_nodes, dim
+            )[-1]
+            stm_ctx = self.stm.read_all()
+            fused = 0.5 * attended + 0.5 * stm_ctx
+            for v in range(num_nodes):
+                fused[v] = self.ltm.fuse(v, fused[v])
 
-        # ------------------------------------------------------------------
-        # 4) Compute multi-task predictions from shared edge representations
-        # ------------------------------------------------------------------
-        edges = history[-1].edges
-        preds_tt = []
-        preds_cr = []
-        for u, v in edges:
-            pair = np.concatenate([fused[u], fused[v]], axis=-1)
-            preds_tt.append(self.travel_head.mlp(pair).squeeze(-1))
-            preds_cr.append(self.crowd_head.mlp(pair))
+            if t >= n_steps - horizon:
+                edges = history[t].edges
+                preds_tt = []
+                preds_cr = []
+                for u, v in edges:
+                    pair = np.concatenate([fused[u], fused[v]], axis=-1)
+                    preds_tt.append(self.travel_head.mlp(pair).squeeze(-1))
+                    preds_cr.append(self.crowd_head.mlp(pair))
+                tt_preds.append(np.stack(preds_tt))
+                cr_preds.append(np.stack(preds_cr))
 
-        travel = np.stack(preds_tt)
-        crowd = np.stack(preds_cr)
+        travel = np.stack(tt_preds)
+        crowd = np.stack(cr_preds)
         return travel, crowd
 
     # --------------------------------------------------------------
@@ -99,7 +98,8 @@ class CoSTGFormer:
         lambda_cr: float = 1.0,
         classification: bool = True,
     ) -> float:
-        travel, crowd = self.forward(history)
+        horizon = len(tt_target) if hasattr(tt_target, "__len__") else 1
+        travel, crowd = self.forward(history, horizon=horizon)
         l_tt = mse_loss(travel, tt_target)
         if classification:
             l_cr = cross_entropy_loss(crowd, cr_target.astype(int))

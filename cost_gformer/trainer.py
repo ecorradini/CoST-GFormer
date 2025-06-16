@@ -113,41 +113,64 @@ class Trainer:
             self.scheduler = None
 
     # --------------------------------------------------------------
-    def _forward_single(
-        self, history: List[GraphSnapshot], target: GraphSnapshot
+    def _forward_multi(
+        self, history: List[GraphSnapshot], future: List[GraphSnapshot]
     ) -> Tuple[torch.Tensor, float, float, float, int]:
-        with torch.no_grad():
-            embeds = torch.from_numpy(self.stm.encode_window(history)).to(self.device)
-            current = embeds[-1]
-        edges, tt_tgt, cr_tgt = _prepare_targets(
-            target, self.model.crowd_head.num_classes, self.classification
-        )
-        if len(edges) == 0:
+        if not future:
             return torch.tensor(0.0), 0.0, 0.0, 0.0, 0
 
-        idx_u = torch.tensor(edges[:, 0], device=self.device)
-        idx_v = torch.tensor(edges[:, 1], device=self.device)
-        pairs = torch.cat([current[idx_u], current[idx_v]], dim=1)
+        with torch.no_grad():
+            seq = history + future
+            embeds = torch.from_numpy(self.stm.encode_window(seq)).to(self.device)
 
-        pred_tt = self.model.travel_head.mlp(pairs).squeeze(-1)
-        tt_tgt_t = torch.from_numpy(tt_tgt).to(self.device)
-        l_tt = F.mse_loss(pred_tt, tt_tgt_t)
-        mae_tt = F.l1_loss(pred_tt, tt_tgt_t).item()
-        rmse_tt = torch.sqrt(F.mse_loss(pred_tt, tt_tgt_t)).item()
+        start = len(history)
+        total_loss = torch.tensor(0.0, device=self.device)
+        mae_tt = 0.0
+        rmse_tt = 0.0
+        cr_acc = 0.0
+        n_samples = 0
 
-        logits = self.model.crowd_head.mlp(pairs)
-        if self.classification:
-            cr_t = torch.from_numpy(cr_tgt).long().to(self.device)
-            l_cr = F.cross_entropy(logits, cr_t)
-            acc = (logits.argmax(dim=1) == cr_t).float().mean().item()
-        else:
-            cr_t = torch.from_numpy(cr_tgt).to(self.device)
-            pred = logits.squeeze(-1)
-            l_cr = F.mse_loss(pred, cr_t)
-            acc = 0.0
+        for i, snap in enumerate(future):
+            current = embeds[start + i]
+            edges, tt_tgt, cr_tgt = _prepare_targets(
+                snap, self.model.crowd_head.num_classes, self.classification
+            )
+            if len(edges) == 0:
+                continue
 
-        loss = l_tt + l_cr
-        return loss, mae_tt, rmse_tt, acc, len(edges)
+            idx_u = torch.tensor(edges[:, 0], device=self.device)
+            idx_v = torch.tensor(edges[:, 1], device=self.device)
+            pairs = torch.cat([current[idx_u], current[idx_v]], dim=1)
+
+            pred_tt = self.model.travel_head.mlp(pairs).squeeze(-1)
+            tt_tgt_t = torch.from_numpy(tt_tgt).to(self.device)
+            l_tt = F.mse_loss(pred_tt, tt_tgt_t)
+            step_mae = F.l1_loss(pred_tt, tt_tgt_t).item()
+            step_rmse = torch.sqrt(F.mse_loss(pred_tt, tt_tgt_t)).item()
+
+            logits = self.model.crowd_head.mlp(pairs)
+            if self.classification:
+                cr_t = torch.from_numpy(cr_tgt).long().to(self.device)
+                l_cr = F.cross_entropy(logits, cr_t)
+                acc = (logits.argmax(dim=1) == cr_t).float().mean().item()
+            else:
+                cr_t = torch.from_numpy(cr_tgt).to(self.device)
+                pred = logits.squeeze(-1)
+                l_cr = F.mse_loss(pred, cr_t)
+                acc = 0.0
+
+            total_loss = total_loss + l_tt + l_cr
+            mae_tt += step_mae * len(edges)
+            rmse_tt += step_rmse * len(edges)
+            cr_acc += acc * len(edges)
+            n_samples += len(edges)
+
+        horizon = len(future)
+        if n_samples == 0:
+            return torch.tensor(0.0), 0.0, 0.0, 0.0, 0
+
+        loss = total_loss / horizon
+        return loss, mae_tt / n_samples, rmse_tt / n_samples, cr_acc / n_samples, n_samples
 
     # --------------------------------------------------------------
     def train_epoch(self) -> Tuple[float, float, float, float]:
@@ -163,7 +186,7 @@ class Trainer:
             batch_loss = 0.0
             for idx in batch:
                 hist, fut = self.data[idx]
-                loss, mae, rmse, acc, n = self._forward_single(hist, fut[0])
+                loss, mae, rmse, acc, n = self._forward_multi(hist, fut)
                 batch_loss = batch_loss + loss
                 tt_mae += mae * n
                 tt_rmse += rmse * n
@@ -195,7 +218,7 @@ class Trainer:
         with torch.no_grad():
             for idx in self.val_idx:
                 hist, fut = self.data[idx]
-                loss, mae, rmse, acc, n = self._forward_single(hist, fut[0])
+                loss, mae, rmse, acc, n = self._forward_multi(hist, fut)
                 total += float(loss)
                 tt_mae += mae * n
                 tt_rmse += rmse * n

@@ -54,7 +54,7 @@ class TravelTimeHead:
             x = np.concatenate([u_emb, v_emb], axis=-1)
             out = self.mlp(x)
             return out.squeeze(-1)
-        x = torch.cat([u_emb, v_emb])
+        x = torch.cat([u_emb, v_emb], dim=-1)
         out = self.mlp(x)
         return out.squeeze(-1)
 
@@ -84,7 +84,7 @@ class CrowdingHead:
             x = np.concatenate([u_emb, v_emb], axis=-1)
             out = self.mlp(x)
             return out
-        x = torch.cat([u_emb, v_emb])
+        x = torch.cat([u_emb, v_emb], dim=-1)
         out = self.mlp(x)
         return out
 
@@ -107,9 +107,12 @@ def mse_loss(pred: np.ndarray, target: np.ndarray) -> float:
 
 
 def cross_entropy_loss(logits: np.ndarray, labels: np.ndarray) -> float:
-    probs = CrowdingHead.softmax(logits)
-    n = labels.shape[0]
-    loss = -np.log(probs[np.arange(n), labels])
+    logits = np.asarray(logits)
+    labels = np.asarray(labels)
+    probs = CrowdingHead.softmax(logits.reshape(-1, logits.shape[-1]))
+    lbl = labels.reshape(-1)
+    n = lbl.shape[0]
+    loss = -np.log(probs[np.arange(n), lbl])
     return float(np.mean(loss))
 
 
