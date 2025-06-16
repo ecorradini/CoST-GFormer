@@ -23,8 +23,9 @@ from .model import CoSTGFormer
 # ---------------------------------------------------------------------------
 
 def _mlp_forward(mlp, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    hidden = torch.relu(x @ torch.from_numpy(mlp.w1).to(x.device) + torch.from_numpy(mlp.b1).to(x.device))
-    out = hidden @ torch.from_numpy(mlp.w2).to(x.device) + torch.from_numpy(mlp.b2).to(x.device)
+    hidden = torch.relu(x @ mlp.w1.to(x.device) + mlp.b1.to(x.device))
+    out = hidden @ mlp.w2.to(x.device) + mlp.b2.to(x.device)
+
     return hidden, out
 
 
@@ -33,7 +34,7 @@ def _mlp_backward(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     grad_w2 = torch.outer(hidden, grad_out)
     grad_b2 = grad_out
-    w2 = torch.from_numpy(mlp.w2).to(x.device)
+    w2 = mlp.w2.to(x.device)
     grad_hidden = grad_out @ w2.T
     grad_hidden = torch.where(hidden <= 0.0, torch.zeros_like(grad_hidden), grad_hidden)
     grad_w1 = torch.outer(x, grad_hidden)
@@ -43,10 +44,10 @@ def _mlp_backward(
 
 def _update_mlp(mlp, grads, lr: float) -> None:
     gw1, gb1, gw2, gb2 = grads
-    mlp.w1 -= (lr * gw1.cpu().numpy())
-    mlp.b1 -= (lr * gb1.cpu().numpy())
-    mlp.w2 -= (lr * gw2.cpu().numpy())
-    mlp.b2 -= (lr * gb2.cpu().numpy())
+    mlp.w1 -= lr * gw1.to(mlp.w1.device)
+    mlp.b1 -= lr * gb1.to(mlp.b1.device)
+    mlp.w2 -= lr * gw2.to(mlp.w2.device)
+    mlp.b2 -= lr * gb2.to(mlp.b2.device)
 
 
 # ---------------------------------------------------------------------------
