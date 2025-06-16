@@ -5,6 +5,7 @@ from cost_gformer import (
     DataModule,
     SpatioTemporalEmbedding,
     ExpandedGraph,
+    UnifiedSpatioTemporalAttention,
 )
 from cost_gformer.data import generate_synthetic_dataset
 
@@ -26,7 +27,12 @@ def main() -> None:
     # Construct expanded spatio-temporal graph using the same window
     graph = ExpandedGraph(history, num_nodes=4)
 
-    model = CoSTGFormer()
+    model = CoSTGFormer(embedding=stm)
+
+    # Apply unified attention to the expanded embeddings as a demo
+    usta = UnifiedSpatioTemporalAttention(embed_dim=embeddings.shape[-1])
+    expanded_embeds = embeddings.reshape(-1, embeddings.shape[-1])
+    attended = usta(expanded_embeds)
 
     print("Number of samples:", len(data))
     print("History length:", len(history))
@@ -35,6 +41,7 @@ def main() -> None:
     print("Model:", model)
     print("Expanded nodes:", graph.num_expanded_nodes)
     print("Edge index shape:", graph.edge_index().shape)
+    print("USTA output shape:", attended.shape)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation

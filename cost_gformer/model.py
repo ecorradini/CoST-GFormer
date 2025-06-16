@@ -7,8 +7,8 @@ Short Term Memory (STM), Long Term Memory (LTM) and Ultra Short Term Attention
 """
 
 from .embedding import Embedding
-from .attention import Attention
-from .memory import UltraShortTermAttention, ShortTermMemory, LongTermMemory
+from .attention import Attention, UnifiedSpatioTemporalAttention
+from .memory import ShortTermMemory, LongTermMemory
 
 
 class CoSTGFormer:
@@ -17,7 +17,8 @@ class CoSTGFormer:
     def __init__(self, heads: int = 8, embedding: Embedding | None = None):
         self.embedding = embedding
         self.attention = Attention(heads=heads)
-        self.usta = UltraShortTermAttention()
+        self.usta = UnifiedSpatioTemporalAttention(embed_dim=self.embedding.mlp.b2.size if embedding else 32,
+                                                   num_heads=heads)
         self.stm = ShortTermMemory()
         self.ltm = LongTermMemory()
 
