@@ -8,6 +8,7 @@ for real experiments.
 """
 
 import numpy as np
+import torch
 
 from .embedding import Embedding
 from .attention import Attention, UnifiedSpatioTemporalAttention
@@ -19,7 +20,13 @@ from .data import GraphSnapshot
 class CoSTGFormer:
     """Prototype implementation of the CoST-GFormer model."""
 
-    def __init__(self, heads: int = 8, embedding: Embedding | None = None, num_nodes: int | None = None):
+    def __init__(
+        self,
+        heads: int = 8,
+        embedding: Embedding | None = None,
+        num_nodes: int | None = None,
+        device: str | torch.device = "cpu",
+    ):
         self.embedding = embedding
         embed_dim = self.embedding.mlp.b2.numel() if embedding else 32
         self.attention = Attention(embed_dim=embed_dim, num_heads=heads)
@@ -31,8 +38,8 @@ class CoSTGFormer:
         else:
             self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
-        self.travel_head = TravelTimeHead(embed_dim)
-        self.crowd_head = CrowdingHead(embed_dim)
+        self.travel_head = TravelTimeHead(embed_dim, device=device)
+        self.crowd_head = CrowdingHead(embed_dim, device=device)
 
     def forward(self, history: "list[GraphSnapshot]", horizon: int = 1):
         """Predict travel time and crowding for ``horizon`` future steps.
