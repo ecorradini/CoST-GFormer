@@ -49,28 +49,54 @@ class SpatioTemporalEmbedding:
         spectral_dim: int = 4,
         hidden_dim: int = 64,
         device: str | torch.device = "cpu",
+        use_sparse: bool = True,
     ) -> None:
         self.num_nodes = num_nodes
         self.dynamic_dim = dynamic_dim
         self.device = torch.device(device)
+        self.use_sparse = use_sparse
 
-        # Build symmetric adjacency from the provided static edges.
-        adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
-        for u, v in static_edges:
-            adj[u, v] = 1.0
-            adj[v, u] = 1.0
+        if self.use_sparse and num_nodes > spectral_dim + 1:
+            import scipy.sparse as sp
+            import scipy.sparse.linalg as splinalg
 
-        # Normalised Laplacian: L = I - D^{-1/2} A D^{-1/2}
-        deg = adj.sum(dim=1)
-        d_inv_sqrt = torch.diag(torch.where(deg > 0, deg.pow(-0.5), torch.zeros_like(deg)))
-        lap = torch.eye(num_nodes) - d_inv_sqrt @ adj @ d_inv_sqrt
+            rows: List[int] = []
+            cols: List[int] = []
+            data: List[float] = []
+            for u, v in static_edges:
+                rows.extend([u, v])
+                cols.extend([v, u])
+                data.extend([1.0, 1.0])
+            adj = sp.csr_matrix((data, (rows, cols)), shape=(num_nodes, num_nodes), dtype=np.float32)
+            deg = np.asarray(adj.sum(axis=1)).reshape(-1)
+            d_inv = np.where(deg > 0, deg ** -0.5, 0.0)
+            d_inv_sqrt = sp.diags(d_inv)
+            lap = sp.eye(num_nodes, dtype=np.float32) - d_inv_sqrt @ adj @ d_inv_sqrt
 
-        # Eigen-decomposition and take the smallest non-zero eigenvectors.
-        # ``torch.linalg.eigh`` can fail on some platforms for large float32
-        # matrices.  Using NumPy avoids those LAPACK issues.
-        eigvals_np, eigvecs_np = np.linalg.eigh(lap.cpu().numpy())
-        eigvals = torch.from_numpy(eigvals_np)
-        eigvecs = torch.from_numpy(eigvecs_np)
+            k = min(spectral_dim + 1, num_nodes - 1)
+            eigvals_np, eigvecs_np = splinalg.eigsh(lap, k=k, which="SM")
+            order = np.argsort(eigvals_np)
+            eigvals_np = eigvals_np[order]
+            eigvecs_np = eigvecs_np[:, order]
+            eigvals = torch.from_numpy(eigvals_np)
+            eigvecs = torch.from_numpy(eigvecs_np)
+        else:
+            # Build symmetric adjacency from the provided static edges using dense tensors.
+            adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+            for u, v in static_edges:
+                adj[u, v] = 1.0
+                adj[v, u] = 1.0
+
+            # Normalised Laplacian: L = I - D^{-1/2} A D^{-1/2}
+            deg = adj.sum(dim=1)
+            d_inv_sqrt = torch.diag(torch.where(deg > 0, deg.pow(-0.5), torch.zeros_like(deg)))
+            lap = torch.eye(num_nodes) - d_inv_sqrt @ adj @ d_inv_sqrt
+
+            # ``torch.linalg.eigh`` can fail on some platforms for large float32 matrices.
+            # Using NumPy avoids those LAPACK issues.
+            eigvals_np, eigvecs_np = np.linalg.eigh(lap.cpu().numpy())
+            eigvals = torch.from_numpy(eigvals_np)
+            eigvecs = torch.from_numpy(eigvecs_np)
         available = max(1, len(eigvals) - 1)
         sdim = min(spectral_dim, available)
         idx = torch.argsort(eigvals)[1 : 1 + sdim]

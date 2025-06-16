@@ -1,6 +1,10 @@
 import numpy as np
 import pytest
 import torch
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cost_gformer.attention import Attention, UnifiedSpatioTemporalAttention
 from cost_gformer.memory import ShortTermMemory, LongTermMemory
