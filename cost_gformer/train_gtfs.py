@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+import logging
+
 from cost_gformer.gtfs import load_gtfs
 from cost_gformer.data import DataModule
 from cost_gformer.model import CoSTGFormer
@@ -33,6 +35,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use regression for crowd level instead of classification",
     )
+    p.add_argument(
+        "--log-file",
+        metavar="PATH",
+        help="Write verbose training log to the given file",
+    )
     return p.parse_args()
 
 
@@ -42,6 +49,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.log_file:
+        logging.basicConfig(
+            filename=args.log_file,
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
     dataset = load_gtfs(args.static, args.realtime)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
     model = CoSTGFormer()
