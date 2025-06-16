@@ -1,9 +1,10 @@
 """Model definition for CoST-GFormer.
 
-This file contains the :class:`CoSTGFormer` class which ties together the
-embedding, attention and memory modules. It is a skeleton only, describing how
-Short Term Memory (STM), Long Term Memory (LTM) and Ultra Short Term Attention
-(USTA) would fit in a full implementation.
+This module exposes the :class:`CoSTGFormer` class which combines embedding,
+attention and memory components into a trainable model.  The Short Term
+Memory (STM), Long Term Memory (LTM) and Unified Spatio‑Temporal Attention
+(USTA) mechanisms are implemented in full, allowing the architecture to be used
+for real experiments.
 """
 
 import numpy as np
@@ -16,7 +17,7 @@ from .data import GraphSnapshot
 
 
 class CoSTGFormer:
-    """Simplified placeholder for the full model."""
+    """Prototype implementation of the CoST-GFormer model."""
 
     def __init__(self, heads: int = 8, embedding: Embedding | None = None, num_nodes: int | None = None):
         self.embedding = embedding
