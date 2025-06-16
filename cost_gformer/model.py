@@ -14,8 +14,8 @@ from .memory import UltraShortTermAttention, ShortTermMemory, LongTermMemory
 class CoSTGFormer:
     """Simplified placeholder for the full model."""
 
-    def __init__(self, d_model: int = 128, heads: int = 8):
-        self.embedding = Embedding(dim=d_model)
+    def __init__(self, heads: int = 8, embedding: Embedding | None = None):
+        self.embedding = embedding
         self.attention = Attention(heads=heads)
         self.usta = UltraShortTermAttention()
         self.stm = ShortTermMemory()
@@ -26,6 +26,4 @@ class CoSTGFormer:
         return x
 
     def __repr__(self) -> str:  # pragma: no cover - simple repr
-        return (
-            f"{self.__class__.__name__}(d_model={self.embedding.dim}, heads={self.attention.heads})"
-        )
+        return f"{self.__class__.__name__}(heads={self.attention.heads})"

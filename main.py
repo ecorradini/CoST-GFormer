@@ -1,6 +1,7 @@
 """Example usage of the CoST-GFormer package."""
 
-from cost_gformer import CoSTGFormer, DataModule
+from cost_gformer import CoSTGFormer, DataModule, SpatioTemporalEmbedding
+from cost_gformer.data import generate_synthetic_dataset
 from cost_gformer.data import generate_synthetic_dataset
 
 
@@ -12,11 +13,18 @@ def main() -> None:
     # Retrieve the first training example just to demonstrate usage
     history, future = data[0]
 
+    # Build spatio-temporal embeddings for the historical window
+    static_edges = dataset[0].edges
+    dyn_dim = len(next(iter(dataset[0].dynamic_edge_feat.values())))
+    stm = SpatioTemporalEmbedding(num_nodes=4, static_edges=static_edges, dynamic_dim=dyn_dim)
+    embeddings = stm.encode_window(history)
+
     model = CoSTGFormer()
 
     print("Number of samples:", len(data))
     print("History length:", len(history))
     print("Future length:", len(future))
+    print("Embeddings shape:", embeddings.shape)
     print("Model:", model)
 
 
