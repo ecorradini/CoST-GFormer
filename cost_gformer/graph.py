@@ -1,0 +1,105 @@
+"""Utilities for expanded spatio-temporal graphs."""
+
+from __future__ import annotations
+
+from typing import Iterable, List, Tuple
+
+import numpy as np
+
+from .data import GraphSnapshot
+
+
+class ExpandedGraph:
+    """Construct an expanded spatio-temporal graph from snapshots.
+
+    The expanded graph replicates each node for every time step in the
+    provided window and links replicas using spatial edges from each
+    snapshot and temporal edges between consecutive snapshots.
+    """
+
+    def __init__(self, snapshots: List[GraphSnapshot], num_nodes: int) -> None:
+        if not snapshots:
+            raise ValueError("snapshots must not be empty")
+        self.snapshots = snapshots
+        self.num_nodes = num_nodes
+        self.num_steps = len(snapshots)
+
+        self.edges: List[Tuple[int, int]] = []
+        self._build_edges()
+
+    # ------------------------------------------------------------------
+    def _build_edges(self) -> None:
+        n = self.num_nodes
+        T = self.num_steps
+        for t, snap in enumerate(self.snapshots):
+            base = t * n
+            for (u, v) in snap.edges:
+                self.edges.append((base + u, base + v))
+        for t in range(T - 1):
+            base = t * n
+            next_base = (t + 1) * n
+            for v in range(n):
+                self.edges.append((base + v, next_base + v))
+
+    # ------------------------------------------------------------------
+    @property
+    def num_expanded_nodes(self) -> int:
+        return self.num_nodes * self.num_steps
+
+    def edge_index(self) -> np.ndarray:
+        arr = np.array(self.edges, dtype=np.int64).T
+        return arr
+
+
+class DynamicGraphHandler:
+    """Maintain fused adjacency matrices from static and dynamic components."""
+
+    def __init__(
+        self,
+        num_nodes: int,
+        static_edges: Iterable[Tuple[int, int]],
+        alpha: float = 0.5,
+        top_p: int = 5,
+    ) -> None:
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError("alpha must be in [0, 1]")
+        if top_p <= 0:
+            raise ValueError("top_p must be positive")
+
+        self.num_nodes = num_nodes
+        self.alpha = float(alpha)
+        self.top_p = int(top_p)
+
+        self.static_adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+        for u, v in static_edges:
+            self.static_adj[u, v] = 1.0
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _softmax_rows(x: np.ndarray) -> np.ndarray:
+        x = x - x.max(axis=1, keepdims=True)
+        e = np.exp(x)
+        return e / e.sum(axis=1, keepdims=True)
+
+    def _prune(self, adj: np.ndarray) -> np.ndarray:
+        n = adj.shape[0]
+        out = np.zeros_like(adj)
+        for i in range(n):
+            row = adj[i]
+            k = min(self.top_p, row.size)
+            idx = np.argpartition(-row, k - 1)[:k]
+            out[i, idx] = row[idx]
+        return out
+
+    def update(self, embeddings: np.ndarray) -> np.ndarray:
+        """Compute fused adjacency from the latest embeddings."""
+
+        scores = embeddings @ embeddings.T
+        np.maximum(scores, 0.0, out=scores)
+        dyn = self._softmax_rows(scores)
+
+        fused = self.alpha * self.static_adj + (1.0 - self.alpha) * dyn
+        return self._prune(fused)
+
+__all__ = ["ExpandedGraph", "DynamicGraphHandler"]
+
