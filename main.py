@@ -43,6 +43,7 @@ def main() -> None:
     model = CoSTGFormer(embedding=stm, num_nodes=4)
 
     trainer = Trainer(model=model, data=data, epochs=2)
+
     trainer.fit()
 
     # Apply unified attention to the expanded embeddings as a demo
