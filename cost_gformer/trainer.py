@@ -25,6 +25,7 @@ from .model import CoSTGFormer
 def _mlp_forward(mlp, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     hidden = torch.relu(x @ mlp.w1.to(x.device) + mlp.b1.to(x.device))
     out = hidden @ mlp.w2.to(x.device) + mlp.b2.to(x.device)
+
     return hidden, out
 
 
