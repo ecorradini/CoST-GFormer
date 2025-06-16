@@ -27,7 +27,7 @@ class MLP:
             x_t = torch.from_numpy(x).to(self.w1.device)
             hidden = torch.relu(x_t @ self.w1 + self.b1)
             out = hidden @ self.w2 + self.b2
-            return out.cpu().numpy()
+            return out.detach().cpu().numpy()
         hidden = torch.relu(x @ self.w1 + self.b1)
         return hidden @ self.w2 + self.b2
 

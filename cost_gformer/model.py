@@ -22,13 +22,14 @@ class CoSTGFormer:
     def __init__(self, heads: int = 8, embedding: Embedding | None = None, num_nodes: int | None = None):
         self.embedding = embedding
         embed_dim = self.embedding.mlp.b2.numel() if embedding else 32
-        self.attention = Attention(heads=heads)
+        self.attention = Attention(embed_dim=embed_dim, num_heads=heads)
         self.usta = UnifiedSpatioTemporalAttention(embed_dim=embed_dim, num_heads=heads)
         self.stm = ShortTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
         if num_nodes is None:
-            num_nodes = 0 if embedding is None else embedding.num_nodes
-        self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
+            self.ltm = None
+        else:
+            self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
         self.travel_head = TravelTimeHead(embed_dim)
         self.crowd_head = CrowdingHead(embed_dim)
@@ -59,6 +60,8 @@ class CoSTGFormer:
 
         embeds = self.embedding.encode_window(history)
         n_steps, num_nodes, dim = embeds.shape
+        if self.ltm is None:
+            self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=dim)
         tt_preds: list[np.ndarray] = []
         cr_preds: list[np.ndarray] = []
 
@@ -108,4 +111,4 @@ class CoSTGFormer:
         return lambda_tt * l_tt + lambda_cr * l_cr
 
     def __repr__(self) -> str:  # pragma: no cover - simple repr
-        return f"{self.__class__.__name__}(heads={self.attention.heads})"
+        return f"{self.__class__.__name__}(heads={self.attention.num_heads})"

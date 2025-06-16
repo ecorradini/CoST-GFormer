@@ -101,7 +101,7 @@ class Attention:
 
         concat = out.reshape(out.shape[0], -1)
         result = concat @ self.W_o
-        return result.cpu().numpy()
+        return result.detach().cpu().numpy()
 
 class UnifiedSpatioTemporalAttention:
     """USTA with learnable projections and gated mixture-of-experts."""
@@ -188,7 +188,8 @@ class UnifiedSpatioTemporalAttention:
         out = torch.zeros_like(q)
         for i in range(n):
             s = scores[i]
-            idx = torch.topk(s, self.top_k).indices
+            k = min(self.top_k, s.shape[0])
+            idx = torch.topk(s, k).indices
             weights = self._softmax(s[idx])
             out[i] = weights @ v[idx]
         return out
@@ -219,7 +220,7 @@ class UnifiedSpatioTemporalAttention:
 
         concat = torch.cat(head_outputs, dim=-1)
         out = concat @ self.W_o
-        return out.cpu().numpy()
+        return out.detach().cpu().numpy()
 
 
 __all__ = ["Attention", "UnifiedSpatioTemporalAttention"]
