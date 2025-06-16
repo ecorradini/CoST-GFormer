@@ -23,6 +23,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=5, help="Training epochs")
     p.add_argument("--lr", type=float, default=0.01, help="Learning rate")
     p.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cpu",
+        help="Computation device",
+    )
+    p.add_argument(
         "--regression",
         action="store_true",
         help="Use regression for crowd level instead of classification",
@@ -45,6 +51,7 @@ def main() -> None:
         lr=args.lr,
         epochs=args.epochs,
         classification=not args.regression,
+        device=args.device,
     )
     trainer.fit()
 
