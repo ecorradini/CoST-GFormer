@@ -1,5 +1,5 @@
-numpy
-protobuf
-gtfs-realtime-bindings
-pytest
-torch
+numpy==2.3.0
+protobuf==6.31.1
+gtfs-realtime-bindings==1.0.0
+pytest==8.3.5
+torch==2.7.1
