@@ -60,6 +60,9 @@ class DynamicGraphHandler:
         static_edges: Iterable[Tuple[int, int]],
         alpha: float = 0.5,
         top_p: int = 5,
+        decay: float = 0.1,
+        remove_threshold: float = 0.01,
+        add_edges: bool = True,
     ) -> None:
         if not 0.0 <= alpha <= 1.0:
             raise ValueError("alpha must be in [0, 1]")
@@ -70,9 +73,20 @@ class DynamicGraphHandler:
         self.alpha = float(alpha)
         self.top_p = int(top_p)
 
+        if not 0.0 <= decay <= 1.0:
+            raise ValueError("decay must be in [0, 1]")
+        if not 0.0 <= remove_threshold <= 1.0:
+            raise ValueError("remove_threshold must be in [0, 1]")
+
+        self.decay = float(decay)
+        self.remove_threshold = float(remove_threshold)
+        self.add_edges = bool(add_edges)
+
         self.static_adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+        self.dynamic_mask = np.zeros((num_nodes, num_nodes), dtype=np.float32)
         for u, v in static_edges:
             self.static_adj[u, v] = 1.0
+            self.dynamic_mask[u, v] = 1.0
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -91,6 +105,21 @@ class DynamicGraphHandler:
             out[i, idx] = row[idx]
         return out
 
+    # ------------------------------------------------------------------
+    def ingest(self, active_edges: Iterable[Tuple[int, int]]) -> None:
+        """Ingest live service data and update the internal edge state."""
+
+        self.dynamic_mask *= 1.0 - self.decay
+
+        for u, v in active_edges:
+            if self.add_edges and self.static_adj[u, v] == 0.0:
+                self.static_adj[u, v] = 1.0
+            self.dynamic_mask[u, v] = 1.0
+
+        remove = self.dynamic_mask < self.remove_threshold
+        self.dynamic_mask[remove] = 0.0
+        self.static_adj[remove] = 0.0
+
     def update(self, embeddings: np.ndarray) -> np.ndarray:
         """Compute fused adjacency from the latest embeddings."""
 
@@ -98,7 +127,8 @@ class DynamicGraphHandler:
         np.maximum(scores, 0.0, out=scores)
         dyn = self._softmax_rows(scores)
 
-        fused = self.alpha * self.static_adj + (1.0 - self.alpha) * dyn
+        fused_static = self.static_adj * self.dynamic_mask
+        fused = self.alpha * fused_static + (1.0 - self.alpha) * dyn
         return self._prune(fused)
 
 __all__ = ["ExpandedGraph", "DynamicGraphHandler"]
