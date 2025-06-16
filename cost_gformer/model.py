@@ -22,7 +22,7 @@ class CoSTGFormer:
         embed_dim = self.embedding.mlp.b2.size if embedding else 32
         self.attention = Attention(heads=heads)
         self.usta = UnifiedSpatioTemporalAttention(embed_dim=embed_dim, num_heads=heads)
-        self.stm = ShortTermMemory()
+        self.stm = ShortTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
         if num_nodes is None:
             num_nodes = 0 if embedding is None else embedding.num_nodes
@@ -33,12 +33,18 @@ class CoSTGFormer:
 
     def forward(self, embeddings: "np.ndarray", edges: "np.ndarray"):
         """Return predictions for the given edges."""
+        self.stm.write(embeddings)
+        self.ltm.write(embeddings)
+
+        # Short-term context
+        ctx = self.stm.read_all()
+        emb_with_stm = 0.5 * embeddings + 0.5 * ctx
 
         preds_tt = []
         preds_cr = []
         for u, v in edges:
-            u_emb = embeddings[u]
-            v_emb = embeddings[v]
+            u_emb = self.ltm.fuse(u, emb_with_stm[u])
+            v_emb = self.ltm.fuse(v, emb_with_stm[v])
             preds_tt.append(self.travel_head(u_emb, v_emb))
             preds_cr.append(self.crowd_head(u_emb, v_emb))
         travel = np.stack(preds_tt)
