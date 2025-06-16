@@ -52,8 +52,8 @@ def main() -> None:
     attended = usta(expanded_embeds)
 
     # Predict travel time and crowding for the next snapshot
-    next_edges = np.array(future[0].edges, dtype=np.int64)
-    tt_pred, crowd_pred = model.forward(latest_embed, next_edges)
+    window = history + [future[0]]
+    tt_pred, crowd_pred = model.forward(window)
 
     print("Number of samples:", len(data))
     print("History length:", len(history))
