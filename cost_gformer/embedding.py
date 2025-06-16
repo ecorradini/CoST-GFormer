@@ -86,17 +86,17 @@ class SpatioTemporalEmbedding:
     # ------------------------------------------------------------------
     @staticmethod
     def _time_encoding(t: int) -> torch.Tensor:
-        hour = t % 24
-        day = t % 7
-        return torch.tensor(
+        hour = torch.tensor(float(t % 24))
+        day = torch.tensor(float(t % 7))
+        enc = torch.stack(
             [
                 torch.sin(2 * torch.pi * hour / 24),
                 torch.cos(2 * torch.pi * hour / 24),
                 torch.sin(2 * torch.pi * day / 7),
                 torch.cos(2 * torch.pi * day / 7),
-            ],
-            dtype=torch.float32,
+            ]
         )
+        return enc.to(torch.float32)
 
     def _aggregate_dynamic(self, snapshot: GraphSnapshot) -> torch.Tensor:
         agg = torch.zeros((self.num_nodes, self.dynamic_dim), dtype=torch.float32)
