@@ -28,10 +28,6 @@ class CoSTGFormer:
             num_nodes = 0 if embedding is None else embedding.num_nodes
         self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
-        if num_nodes is None:
-            num_nodes = 0 if embedding is None else embedding.num_nodes
-        self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
-
         self.travel_head = TravelTimeHead(embed_dim)
         self.crowd_head = CrowdingHead(embed_dim)
 
