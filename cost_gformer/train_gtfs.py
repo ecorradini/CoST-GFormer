@@ -77,7 +77,7 @@ def main() -> None:
         )
     dataset = load_gtfs(args.static, args.realtime)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
-    model = CoSTGFormer()
+    model = CoSTGFormer(device=args.device)
     schedule = None
     if args.lr_step_size > 0:
         schedule = {"step_size": args.lr_step_size, "gamma": args.lr_gamma}
