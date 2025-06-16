@@ -10,23 +10,101 @@ variant used by the model.
 
 import numpy as np  # for type hints
 import torch
+from torch.nn import Parameter
 
 
 class Attention:
-    """Basic multi-head attention block used by the model."""
+    """Multi-head attention supporting STM and LTM interactions."""
 
-    def __init__(self, heads: int = 8):
-        self.heads = heads
-        self.description = (
-            "Attention layers would allow interaction between STM and LTM for "
-            "context reasoning."
-        )
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 8,
+        rng: np.random.Generator | None = None,
+        device: str | torch.device = "cpu",
+    ) -> None:
+        if embed_dim % num_heads != 0:
+            raise ValueError("embed_dim must be divisible by num_heads")
 
+        rng = np.random.default_rng() if rng is None else rng
+        self.embed_dim = int(embed_dim)
+        self.num_heads = int(num_heads)
+        self.head_dim = self.embed_dim // self.num_heads
+        self.device = torch.device(device)
+
+        self.W_q = Parameter(
+            torch.from_numpy(
+                rng.standard_normal((embed_dim, num_heads, self.head_dim), dtype=np.float32)
+            )
+            / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
+        ).to(self.device)
+        self.W_k = Parameter(
+            torch.from_numpy(
+                rng.standard_normal((embed_dim, num_heads, self.head_dim), dtype=np.float32)
+            )
+            / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
+        ).to(self.device)
+        self.W_v = Parameter(
+            torch.from_numpy(
+                rng.standard_normal((embed_dim, num_heads, self.head_dim), dtype=np.float32)
+            )
+            / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
+        ).to(self.device)
+        self.W_o = Parameter(
+            torch.from_numpy(
+                rng.standard_normal((self.num_heads * self.head_dim, embed_dim), dtype=np.float32)
+            )
+            / torch.sqrt(torch.tensor(self.num_heads * self.head_dim, dtype=torch.float32))
+        ).to(self.device)
+
+    # ------------------------------------------------------------------
     def __repr__(self) -> str:  # pragma: no cover - simple repr
-        return f"{self.__class__.__name__}(heads={self.heads})"
+        return f"{self.__class__.__name__}(heads={self.num_heads})"
+
+    # ------------------------------------------------------------------
+    def __call__(
+        self,
+        x: np.ndarray,
+        stm: "np.ndarray | 'ShortTermMemory' | None" = None,
+        ltm: "np.ndarray | 'LongTermMemory' | None" = None,
+    ) -> np.ndarray:
+        """Apply attention over current embeddings and optional memories."""
+
+        from .memory import ShortTermMemory, LongTermMemory
+
+        q = torch.from_numpy(x).to(self.device)
+
+        memories = [q]
+        if stm is not None:
+            if isinstance(stm, ShortTermMemory):
+                m = torch.from_numpy(stm.read_all()).to(self.device)
+            else:
+                m = torch.from_numpy(stm).to(self.device)
+            memories.append(m)
+        if ltm is not None:
+            if isinstance(ltm, LongTermMemory):
+                m = torch.from_numpy(ltm.read_all(x)).to(self.device)
+            else:
+                m = torch.from_numpy(ltm).to(self.device)
+            memories.append(m)
+
+        mem = torch.cat(memories, dim=0)
+
+        q = torch.einsum("nd,dhe->nhe", q, self.W_q)
+        k = torch.einsum("md,dhe->mhe", mem, self.W_k)
+        v = torch.einsum("md,dhe->mhe", mem, self.W_v)
+
+        scale = 1.0 / torch.sqrt(torch.tensor(float(self.head_dim)))
+        scores = torch.einsum("nhe,mhe->nhm", q, k) * scale
+        weights = torch.softmax(scores, dim=-1)
+        out = torch.einsum("nhm,mhe->nhe", weights, v)
+
+        concat = out.reshape(out.shape[0], -1)
+        result = concat @ self.W_o
+        return result.cpu().numpy()
 
 class UnifiedSpatioTemporalAttention:
-    """Simple implementation of USTA with mixture-of-experts and pruning."""
+    """USTA with learnable projections and gated mixture-of-experts."""
 
     def __init__(
         self,
@@ -51,35 +129,33 @@ class UnifiedSpatioTemporalAttention:
         head_dim = embed_dim // num_heads
         self.head_dim = head_dim
 
-        # Query projection shared across experts
-        self.W_q = (
+        # Learnable projections
+        self.W_q = Parameter(
             torch.from_numpy(rng.standard_normal((embed_dim, num_heads, head_dim), dtype=np.float32))
             / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
         ).to(self.device)
 
-        # Expert-specific key/value projections
-        self.W_k = (
+        self.W_k = Parameter(
             torch.from_numpy(
-                rng.standard_normal(
-                    (num_experts, embed_dim, num_heads, head_dim), dtype=np.float32
-                )
+                rng.standard_normal((num_experts, embed_dim, num_heads, head_dim), dtype=np.float32)
             )
             / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
         ).to(self.device)
-        self.W_v = (
+        self.W_v = Parameter(
             torch.from_numpy(
-                rng.standard_normal(
-                    (num_experts, embed_dim, num_heads, head_dim), dtype=np.float32
-                )
+                rng.standard_normal((num_experts, embed_dim, num_heads, head_dim), dtype=np.float32)
             )
             / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
         ).to(self.device)
 
-        self.W_g = torch.from_numpy(
-            rng.standard_normal((embed_dim, num_experts), dtype=np.float32)
+        self.W_g = Parameter(
+            torch.from_numpy(
+                rng.standard_normal((embed_dim, num_heads, num_experts), dtype=np.float32)
+            )
+            / torch.sqrt(torch.tensor(embed_dim, dtype=torch.float32))
         ).to(self.device)
 
-        self.W_o = (
+        self.W_o = Parameter(
             torch.from_numpy(
                 rng.standard_normal((num_heads * head_dim, embed_dim), dtype=np.float32)
             )
@@ -94,7 +170,7 @@ class UnifiedSpatioTemporalAttention:
 
     @staticmethod
     def _softmax(x: torch.Tensor) -> torch.Tensor:
-        x = x - x.max()
+        x = x - x.max(dim=-1, keepdim=True).values
         e = torch.exp(x)
         return e / e.sum(dim=-1, keepdim=True)
 
@@ -126,7 +202,7 @@ class UnifiedSpatioTemporalAttention:
 
         q = torch.einsum("nd,dhe->nhe", h_t, self.W_q)
 
-        gate_logits = h_t @ self.W_g
+        gate_logits = torch.einsum("nd,dhe->nhe", h_t, self.W_g)
         gates = self._softmax(gate_logits)
 
         head_outputs = []
@@ -134,7 +210,7 @@ class UnifiedSpatioTemporalAttention:
             q_h = q[:, head, :]
             head_out = torch.zeros((n, self.head_dim), dtype=torch.float32, device=self.device)
             for e in range(self.num_experts):
-                g = gates[:, e, None]
+                g = gates[:, head, e, None]
                 k = h_t @ self.W_k[e, :, head, :]
                 v = h_t @ self.W_v[e, :, head, :]
                 attn = self._attention_single(q_h, k, v)
