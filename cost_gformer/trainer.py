@@ -10,6 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Tuple
 
+import logging
+
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover - optional dependency
+    tqdm = None
+
+logger = logging.getLogger(__name__)
+
 import numpy as np  # for dataset handling
 import torch
 
@@ -227,10 +236,15 @@ class Trainer:
         )
 
     def fit(self) -> None:
-        for epoch in range(1, self.epochs + 1):
+        epoch_iter = range(1, self.epochs + 1)
+        pbar = None
+        if tqdm is not None:
+            pbar = tqdm(epoch_iter, desc="Epochs")
+            epoch_iter = pbar
+        for epoch in epoch_iter:
             t_loss, t_mae, t_rmse, t_acc = self.train_epoch()
             v_loss, v_mae, v_rmse, v_acc = self.val_epoch()
-            print(
+            msg = (
                 "Epoch %02d - train loss: %.4f mae: %.4f rmse: %.4f acc: %.4f - val loss: %.4f mae: %.4f rmse: %.4f acc: %.4f"
                 % (
                     epoch,
@@ -244,6 +258,10 @@ class Trainer:
                     v_acc,
                 )
             )
+            logger.info(msg)
+            if pbar is not None:
+                pbar.set_postfix(train_loss=t_loss, val_loss=v_loss)
+
 
 
 __all__ = ["Trainer"]
