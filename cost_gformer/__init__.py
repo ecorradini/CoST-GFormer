@@ -5,6 +5,7 @@ from .graph import ExpandedGraph, DynamicGraphHandler
 from .embedding import Embedding, SpatioTemporalEmbedding
 from .attention import Attention, UnifiedSpatioTemporalAttention
 from .memory import ShortTermMemory, LongTermMemory, UltraShortTermAttention
+from .heads import TravelTimeHead, CrowdingHead, mse_loss, cross_entropy_loss
 from .model import CoSTGFormer
 
 __all__ = [
@@ -18,5 +19,9 @@ __all__ = [
     "ShortTermMemory",
     "LongTermMemory",
     "UltraShortTermAttention",
+    "TravelTimeHead",
+    "CrowdingHead",
+    "mse_loss",
+    "cross_entropy_loss",
     "CoSTGFormer",
 ]

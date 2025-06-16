@@ -9,6 +9,7 @@ from cost_gformer import (
     UnifiedSpatioTemporalAttention,
     LongTermMemory,
 )
+import numpy as np
 from cost_gformer.data import generate_synthetic_dataset
 
 
@@ -45,6 +46,10 @@ def main() -> None:
     expanded_embeds = embeddings.reshape(-1, embeddings.shape[-1])
     attended = usta(expanded_embeds)
 
+    # Predict travel time and crowding for the next snapshot
+    next_edges = np.array(future[0].edges, dtype=np.int64)
+    tt_pred, crowd_pred = model.forward(latest_embed, next_edges)
+
     print("Number of samples:", len(data))
     print("History length:", len(history))
     print("Future length:", len(future))
@@ -56,6 +61,8 @@ def main() -> None:
     sample_fused = ltm.fuse(0, latest_embed[0])
     print("LTM fused embedding shape:", sample_fused.shape)
     print("USTA output shape:", attended.shape)
+    print("Travel time pred shape:", tt_pred.shape)
+    print("Crowding pred shape:", crowd_pred.shape)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation
