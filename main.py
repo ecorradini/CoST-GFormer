@@ -5,6 +5,7 @@ from cost_gformer import (
     DataModule,
     SpatioTemporalEmbedding,
     ExpandedGraph,
+    DynamicGraphHandler,
     UnifiedSpatioTemporalAttention,
 )
 from cost_gformer.data import generate_synthetic_dataset
@@ -27,6 +28,11 @@ def main() -> None:
     # Construct expanded spatio-temporal graph using the same window
     graph = ExpandedGraph(history, num_nodes=4)
 
+    # Compute fused dynamic adjacency for the latest snapshot
+    dyn_graph = DynamicGraphHandler(num_nodes=4, static_edges=static_edges)
+    latest_embed = embeddings[-1]
+    fused_adj = dyn_graph.update(latest_embed)
+
     model = CoSTGFormer(embedding=stm)
 
     # Apply unified attention to the expanded embeddings as a demo
@@ -41,6 +47,7 @@ def main() -> None:
     print("Model:", model)
     print("Expanded nodes:", graph.num_expanded_nodes)
     print("Edge index shape:", graph.edge_index().shape)
+    print("Fused adjacency shape:", fused_adj.shape)
     print("USTA output shape:", attended.shape)
 
 

@@ -1,8 +1,7 @@
 """Base package for the CoST-GFormer project."""
 
 from .data import DataModule
-from .embedding import Embedding
-from .graph import ExpandedGraph
+from .graph import ExpandedGraph, DynamicGraphHandler
 from .embedding import Embedding, SpatioTemporalEmbedding
 from .attention import Attention, UnifiedSpatioTemporalAttention
 from .memory import ShortTermMemory, LongTermMemory, UltraShortTermAttention
@@ -12,8 +11,8 @@ __all__ = [
     "DataModule",
     "Embedding",
     "SpatioTemporalEmbedding",
-    "SpatioTemporalEmbedding",
     "ExpandedGraph",
+    "DynamicGraphHandler",
     "Attention",
     "UnifiedSpatioTemporalAttention",
     "ShortTermMemory",

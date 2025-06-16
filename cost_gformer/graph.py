@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 import numpy as np
 
@@ -50,5 +50,56 @@ class ExpandedGraph:
         arr = np.array(self.edges, dtype=np.int64).T
         return arr
 
-__all__ = ["ExpandedGraph"]
+
+class DynamicGraphHandler:
+    """Maintain fused adjacency matrices from static and dynamic components."""
+
+    def __init__(
+        self,
+        num_nodes: int,
+        static_edges: Iterable[Tuple[int, int]],
+        alpha: float = 0.5,
+        top_p: int = 5,
+    ) -> None:
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError("alpha must be in [0, 1]")
+        if top_p <= 0:
+            raise ValueError("top_p must be positive")
+
+        self.num_nodes = num_nodes
+        self.alpha = float(alpha)
+        self.top_p = int(top_p)
+
+        self.static_adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+        for u, v in static_edges:
+            self.static_adj[u, v] = 1.0
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _softmax_rows(x: np.ndarray) -> np.ndarray:
+        x = x - x.max(axis=1, keepdims=True)
+        e = np.exp(x)
+        return e / e.sum(axis=1, keepdims=True)
+
+    def _prune(self, adj: np.ndarray) -> np.ndarray:
+        n = adj.shape[0]
+        out = np.zeros_like(adj)
+        for i in range(n):
+            row = adj[i]
+            k = min(self.top_p, row.size)
+            idx = np.argpartition(-row, k - 1)[:k]
+            out[i, idx] = row[idx]
+        return out
+
+    def update(self, embeddings: np.ndarray) -> np.ndarray:
+        """Compute fused adjacency from the latest embeddings."""
+
+        scores = embeddings @ embeddings.T
+        np.maximum(scores, 0.0, out=scores)
+        dyn = self._softmax_rows(scores)
+
+        fused = self.alpha * self.static_adj + (1.0 - self.alpha) * dyn
+        return self._prune(fused)
+
+__all__ = ["ExpandedGraph", "DynamicGraphHandler"]
 
