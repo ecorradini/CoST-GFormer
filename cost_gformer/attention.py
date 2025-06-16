@@ -1,9 +1,10 @@
 """Attention mechanisms for CoST-GFormer.
 
-This module contains a placeholder :class:`Attention` that hints at multi-head
-attention capable of operating over Short Term Memory (STM) as well as Long
-Term Memory (LTM). Real implementations would include query/key/value
-projections and memory-efficient computation.
+The module provides fully functional attention layers.  The :class:`Attention`
+class demonstrates how multi-head attention can operate over the Short Term
+Memory (STM) and Long Term Memory (LTM), while
+:class:`UnifiedSpatioTemporalAttention` implements a pruning mixture-of-experts
+variant used by the model.
 """
 
 
@@ -12,7 +13,7 @@ import torch
 
 
 class Attention:
-    """Placeholder attention block."""
+    """Basic multi-head attention block used by the model."""
 
     def __init__(self, heads: int = 8):
         self.heads = heads

@@ -2,13 +2,15 @@
 
 The memory system is separated into three conceptual blocks:
 
-- :class:`UltraShortTermAttention` (USTA): a very small buffer for the most
-  recent tokens used directly by attention layers.
-- :class:`ShortTermMemory` (STM): holds recent context for quick retrieval.
-- :class:`LongTermMemory` (LTM): archives older information for long-range
+- :class:`UltraShortTermAttention` (USTA) – buffer of the most recent tokens
+  used directly by attention layers.
+- :class:`ShortTermMemory` (STM) – keeps a rolling window of context for quick
+  retrieval.
+- :class:`LongTermMemory` (LTM) – archives older information for long‑range
   dependencies.
 
-These classes are placeholders and only document the intended behavior.
+The implementations provided here are fully functional and are used by the
+model during training and inference.
 """
 
 import numpy as np  # for type hints
