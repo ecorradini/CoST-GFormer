@@ -66,7 +66,11 @@ class SpatioTemporalEmbedding:
         lap = torch.eye(num_nodes) - d_inv_sqrt @ adj @ d_inv_sqrt
 
         # Eigen-decomposition and take the smallest non-zero eigenvectors.
-        eigvals, eigvecs = torch.linalg.eigh(lap)
+        # ``torch.linalg.eigh`` can fail on some platforms for large float32
+        # matrices.  Using NumPy avoids those LAPACK issues.
+        eigvals_np, eigvecs_np = np.linalg.eigh(lap.cpu().numpy())
+        eigvals = torch.from_numpy(eigvals_np)
+        eigvecs = torch.from_numpy(eigvecs_np)
         available = max(1, len(eigvals) - 1)
         sdim = min(spectral_dim, available)
         idx = torch.argsort(eigvals)[1 : 1 + sdim]
