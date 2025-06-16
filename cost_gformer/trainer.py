@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Tuple
 
-import numpy as np
+import numpy as np  # for dataset handling
+import torch
 
 from .data import DataModule, GraphSnapshot
 from .embedding import SpatioTemporalEmbedding
@@ -21,30 +22,31 @@ from .model import CoSTGFormer
 # Helper functions for manual backpropagation of the tiny MLPs
 # ---------------------------------------------------------------------------
 
-def _mlp_forward(mlp, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    hidden = np.maximum(0.0, x @ mlp.w1 + mlp.b1)
-    out = hidden @ mlp.w2 + mlp.b2
+def _mlp_forward(mlp, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    hidden = torch.relu(x @ torch.from_numpy(mlp.w1).to(x.device) + torch.from_numpy(mlp.b1).to(x.device))
+    out = hidden @ torch.from_numpy(mlp.w2).to(x.device) + torch.from_numpy(mlp.b2).to(x.device)
     return hidden, out
 
 
 def _mlp_backward(
-    mlp, x: np.ndarray, hidden: np.ndarray, grad_out: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    grad_w2 = np.outer(hidden, grad_out)
+    mlp, x: torch.Tensor, hidden: torch.Tensor, grad_out: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    grad_w2 = torch.outer(hidden, grad_out)
     grad_b2 = grad_out
-    grad_hidden = grad_out @ mlp.w2.T
-    grad_hidden[hidden <= 0.0] = 0.0
-    grad_w1 = np.outer(x, grad_hidden)
+    w2 = torch.from_numpy(mlp.w2).to(x.device)
+    grad_hidden = grad_out @ w2.T
+    grad_hidden = torch.where(hidden <= 0.0, torch.zeros_like(grad_hidden), grad_hidden)
+    grad_w1 = torch.outer(x, grad_hidden)
     grad_b1 = grad_hidden
     return grad_w1, grad_b1, grad_w2, grad_b2
 
 
 def _update_mlp(mlp, grads, lr: float) -> None:
     gw1, gb1, gw2, gb2 = grads
-    mlp.w1 -= lr * gw1
-    mlp.b1 -= lr * gb1
-    mlp.w2 -= lr * gw2
-    mlp.b2 -= lr * gb2
+    mlp.w1 -= (lr * gw1.cpu().numpy())
+    mlp.b1 -= (lr * gb1.cpu().numpy())
+    mlp.w2 -= (lr * gw2.cpu().numpy())
+    mlp.b2 -= (lr * gb2.cpu().numpy())
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +90,10 @@ class Trainer:
     lr: float = 0.01
     epochs: int = 5
     classification: bool = True
+    device: str | torch.device = "cpu"
 
     def __post_init__(self) -> None:
+        self.device = torch.device(self.device)
         n = len(self.data)
         split = int(n * 0.8)
         self.train_idx = list(range(0, split))
@@ -103,6 +107,7 @@ class Trainer:
                 num_nodes=num_nodes,
                 static_edges=first.edges,
                 dynamic_dim=dyn_dim,
+                device=self.device,
             )
             self.model.embedding = self.stm
 
@@ -113,7 +118,7 @@ class Trainer:
         target_snap: GraphSnapshot,
         update: bool,
     ) -> Tuple[float, float, float, float, int]:
-        embeddings = self.stm.encode_window(history)
+        embeddings = torch.from_numpy(self.stm.encode_window(history)).to(self.device)
         current = embeddings[-1]
         edges, tt_tgt, cr_tgt = _prepare_targets(
             target_snap, self.model.crowd_head.num_classes, self.classification
@@ -123,33 +128,33 @@ class Trainer:
         preds_cr: List[int] = []
         n_edges = len(edges)
         for (u, v), tt, cr in zip(edges, tt_tgt, cr_tgt):
-            x = np.concatenate([current[u], current[v]])
+            x = torch.cat([current[u], current[v]])
             # Travel time regression
             h_tt, pred_tt = _mlp_forward(self.model.travel_head.mlp, x)
-            pred_tt = float(pred_tt.squeeze())
-            preds_tt.append(pred_tt)
-            l_tt = (pred_tt - tt) ** 2
-            grad_tt = 2.0 * (pred_tt - tt)
+            pred_tt_val = float(pred_tt.squeeze().cpu())
+            preds_tt.append(pred_tt_val)
+            l_tt = (pred_tt_val - tt) ** 2
+            grad_tt = 2.0 * (pred_tt_val - tt)
             if update:
                 grads = _mlp_backward(
                     self.model.travel_head.mlp,
                     x,
                     h_tt,
-                    np.array([grad_tt], dtype=np.float32),
+                    torch.tensor([grad_tt], dtype=torch.float32, device=self.device),
                 )
                 _update_mlp(self.model.travel_head.mlp, grads, self.lr)
             # Crowding prediction
             h_cr, logits = _mlp_forward(self.model.crowd_head.mlp, x)
             if self.classification:
                 logits = logits.squeeze()
-                exp = np.exp(logits - logits.max())
+                exp = torch.exp(logits - logits.max())
                 probs = exp / exp.sum()
-                l_cr = -np.log(probs[int(cr)])
+                l_cr = -float(torch.log(probs[int(cr)]))
                 grad_logits = probs
                 grad_logits[int(cr)] -= 1.0
-                preds_cr.append(int(np.argmax(logits)))
+                preds_cr.append(int(torch.argmax(logits).cpu()))
             else:
-                pred = float(logits.squeeze())
+                pred = float(logits.squeeze().cpu())
                 l_cr = (pred - cr) ** 2
                 grad_logits = 2.0 * (pred - cr)
             if update:
@@ -159,11 +164,16 @@ class Trainer:
                 _update_mlp(self.model.crowd_head.mlp, grads, self.lr)
             loss += l_tt + l_cr
 
-        mae_tt = float(np.mean(np.abs(np.array(preds_tt) - tt_tgt))) if preds_tt else 0.0
-        rmse_tt = float(np.sqrt(np.mean((np.array(preds_tt) - tt_tgt) ** 2))) if preds_tt else 0.0
+        if preds_tt:
+            diff = torch.tensor(preds_tt, dtype=torch.float32) - torch.from_numpy(tt_tgt)
+            mae_tt = float(diff.abs().mean())
+            rmse_tt = float(torch.sqrt((diff ** 2).mean()))
+        else:
+            mae_tt = 0.0
+            rmse_tt = 0.0
         acc_cr = 0.0
         if self.classification and preds_cr:
-            acc_cr = float(np.mean(np.array(preds_cr) == cr_tgt))
+            acc_cr = float((torch.tensor(preds_cr) == torch.from_numpy(cr_tgt)).float().mean())
         return float(loss / n_edges), mae_tt, rmse_tt, acc_cr, n_edges
 
     # --------------------------------------------------------------
