@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
+import torch
 
 from .data import Edge, GraphSnapshot
 
@@ -26,13 +27,13 @@ from .data import Edge, GraphSnapshot
 class MLP:
     """Tiny two-layer perceptron used by :class:`SpatioTemporalEmbedding`."""
 
-    w1: np.ndarray
-    b1: np.ndarray
-    w2: np.ndarray
-    b2: np.ndarray
+    w1: torch.Tensor
+    b1: torch.Tensor
+    w2: torch.Tensor
+    b2: torch.Tensor
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        hidden = np.maximum(0.0, x @ self.w1 + self.b1)
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        hidden = torch.relu(x @ self.w1 + self.b1)
         return hidden @ self.w2 + self.b2
 
 
@@ -47,60 +48,61 @@ class SpatioTemporalEmbedding:
         embed_dim: int = 32,
         spectral_dim: int = 4,
         hidden_dim: int = 64,
+        device: str | torch.device = "cpu",
     ) -> None:
         self.num_nodes = num_nodes
         self.dynamic_dim = dynamic_dim
+        self.device = torch.device(device)
 
         # Build symmetric adjacency from the provided static edges.
-        adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+        adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
         for u, v in static_edges:
             adj[u, v] = 1.0
             adj[v, u] = 1.0
 
         # Normalised Laplacian: L = I - D^{-1/2} A D^{-1/2}
-        deg = adj.sum(axis=1)
-        with np.errstate(divide="ignore"):
-            d_inv_sqrt = np.diag(np.where(deg > 0, deg ** -0.5, 0.0))
-        lap = np.eye(num_nodes) - d_inv_sqrt @ adj @ d_inv_sqrt
+        deg = adj.sum(dim=1)
+        d_inv_sqrt = torch.diag(torch.where(deg > 0, deg.pow(-0.5), torch.zeros_like(deg)))
+        lap = torch.eye(num_nodes) - d_inv_sqrt @ adj @ d_inv_sqrt
 
         # Eigen-decomposition and take the smallest non-zero eigenvectors.
-        eigvals, eigvecs = np.linalg.eigh(lap)
+        eigvals, eigvecs = torch.linalg.eigh(lap)
         available = max(1, len(eigvals) - 1)
         sdim = min(spectral_dim, available)
-        idx = np.argsort(eigvals)[1 : 1 + sdim]
-        self.spectral = eigvecs[:, idx].astype(np.float32)
+        idx = torch.argsort(eigvals)[1 : 1 + sdim]
+        self.spectral = eigvecs[:, idx].to(torch.float32)
         spectral_dim = sdim
 
         in_dim = spectral_dim + 4 + dynamic_dim
-        rng = np.random.default_rng(0)
-        w1 = rng.standard_normal((in_dim, hidden_dim), dtype=np.float32) / np.sqrt(in_dim)
-        b1 = np.zeros(hidden_dim, dtype=np.float32)
-        w2 = rng.standard_normal((hidden_dim, embed_dim), dtype=np.float32) / np.sqrt(hidden_dim)
-        b2 = np.zeros(embed_dim, dtype=np.float32)
-        self.mlp = MLP(w1, b1, w2, b2)
+        g = torch.Generator().manual_seed(0)
+        w1 = torch.randn((in_dim, hidden_dim), generator=g, dtype=torch.float32) / torch.sqrt(torch.tensor(in_dim, dtype=torch.float32))
+        b1 = torch.zeros(hidden_dim, dtype=torch.float32)
+        w2 = torch.randn((hidden_dim, embed_dim), generator=g, dtype=torch.float32) / torch.sqrt(torch.tensor(hidden_dim, dtype=torch.float32))
+        b2 = torch.zeros(embed_dim, dtype=torch.float32)
+        self.mlp = MLP(w1.to(self.device), b1.to(self.device), w2.to(self.device), b2.to(self.device))
 
     # ------------------------------------------------------------------
     # Helper functions
     # ------------------------------------------------------------------
     @staticmethod
-    def _time_encoding(t: int) -> np.ndarray:
+    def _time_encoding(t: int) -> torch.Tensor:
         hour = t % 24
         day = t % 7
-        return np.array(
+        return torch.tensor(
             [
-                np.sin(2 * np.pi * hour / 24),
-                np.cos(2 * np.pi * hour / 24),
-                np.sin(2 * np.pi * day / 7),
-                np.cos(2 * np.pi * day / 7),
+                torch.sin(2 * torch.pi * hour / 24),
+                torch.cos(2 * torch.pi * hour / 24),
+                torch.sin(2 * torch.pi * day / 7),
+                torch.cos(2 * torch.pi * day / 7),
             ],
-            dtype=np.float32,
+            dtype=torch.float32,
         )
 
-    def _aggregate_dynamic(self, snapshot: GraphSnapshot) -> np.ndarray:
-        agg = np.zeros((self.num_nodes, self.dynamic_dim), dtype=np.float32)
-        count = np.zeros(self.num_nodes, dtype=np.float32)
+    def _aggregate_dynamic(self, snapshot: GraphSnapshot) -> torch.Tensor:
+        agg = torch.zeros((self.num_nodes, self.dynamic_dim), dtype=torch.float32)
+        count = torch.zeros(self.num_nodes, dtype=torch.float32)
         for (u, v) in snapshot.edges:
-            feat = snapshot.dynamic_edge_feat[(u, v)]
+            feat = torch.from_numpy(snapshot.dynamic_edge_feat[(u, v)])
             agg[u] += feat
             agg[v] += feat
             count[u] += 1
@@ -113,16 +115,18 @@ class SpatioTemporalEmbedding:
     # Public API
     # ------------------------------------------------------------------
     def encode_snapshot(self, snapshot: GraphSnapshot) -> np.ndarray:
-        time_vec = self._time_encoding(snapshot.time)
-        dyn = self._aggregate_dynamic(snapshot)
-        out = np.zeros((self.num_nodes, self.mlp.b2.size), dtype=np.float32)
+        time_vec = self._time_encoding(snapshot.time).to(self.device)
+        dyn = self._aggregate_dynamic(snapshot).to(self.device)
+        out = torch.zeros((self.num_nodes, self.mlp.b2.numel()), dtype=torch.float32, device=self.device)
+        spectral = self.spectral.to(self.device)
         for v in range(self.num_nodes):
-            x = np.concatenate([self.spectral[v], time_vec, dyn[v]])
+            x = torch.cat([spectral[v], time_vec, dyn[v]])
             out[v] = self.mlp(x)
-        return out
+        return out.cpu().numpy()
 
     def encode_window(self, snaps: List[GraphSnapshot]) -> np.ndarray:
-        return np.stack([self.encode_snapshot(s) for s in snaps])
+        embeds = [torch.from_numpy(self.encode_snapshot(s)) for s in snaps]
+        return torch.stack(embeds).cpu().numpy()
 
 
 # Backwards compatibility -------------------------------------------------
