@@ -147,11 +147,13 @@ class SpatioTemporalEmbedding:
     def encode_snapshot(self, snapshot: GraphSnapshot) -> np.ndarray:
         time_vec = self._time_encoding(snapshot.time).to(self.device)
         dyn = self._aggregate_dynamic(snapshot).to(self.device)
-        out = torch.zeros((self.num_nodes, self.mlp.b2.numel()), dtype=torch.float32, device=self.device)
         spectral = self.spectral.to(self.device)
-        for v in range(self.num_nodes):
-            x = torch.cat([spectral[v], time_vec, dyn[v]])
-            out[v] = self.mlp(x)
+
+        # Repeat the time encoding for all nodes and compute all embeddings
+        # in one batched matrix multiplication.
+        time_mat = time_vec.repeat(self.num_nodes, 1)
+        x = torch.cat([spectral, time_mat, dyn], dim=1)
+        out = self.mlp(x)
         return out.cpu().numpy()
 
     def encode_window(self, snaps: List[GraphSnapshot]) -> np.ndarray:
