@@ -7,6 +7,7 @@ from cost_gformer import (
     ExpandedGraph,
     DynamicGraphHandler,
     UnifiedSpatioTemporalAttention,
+    LongTermMemory,
 )
 from cost_gformer.data import generate_synthetic_dataset
 
@@ -33,7 +34,11 @@ def main() -> None:
     latest_embed = embeddings[-1]
     fused_adj = dyn_graph.update(latest_embed)
 
-    model = CoSTGFormer(embedding=stm)
+    # Build lightweight temporal memory from the historical embeddings
+    ltm = LongTermMemory(num_nodes=4, embed_dim=embeddings.shape[-1])
+    ltm.build(embeddings)
+
+    model = CoSTGFormer(embedding=stm, num_nodes=4)
 
     # Apply unified attention to the expanded embeddings as a demo
     usta = UnifiedSpatioTemporalAttention(embed_dim=embeddings.shape[-1])
@@ -48,6 +53,8 @@ def main() -> None:
     print("Expanded nodes:", graph.num_expanded_nodes)
     print("Edge index shape:", graph.edge_index().shape)
     print("Fused adjacency shape:", fused_adj.shape)
+    sample_fused = ltm.fuse(0, latest_embed[0])
+    print("LTM fused embedding shape:", sample_fused.shape)
     print("USTA output shape:", attended.shape)
 
 
