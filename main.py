@@ -8,6 +8,7 @@ from cost_gformer import (
     DynamicGraphHandler,
     UnifiedSpatioTemporalAttention,
     LongTermMemory,
+    Trainer,
 )
 import numpy as np
 from cost_gformer.data import generate_synthetic_dataset
@@ -40,6 +41,9 @@ def main() -> None:
     ltm.build(embeddings)
 
     model = CoSTGFormer(embedding=stm, num_nodes=4)
+
+    trainer = Trainer(model=model, data=data, epochs=50)
+    trainer.fit()
 
     # Apply unified attention to the expanded embeddings as a demo
     usta = UnifiedSpatioTemporalAttention(embed_dim=embeddings.shape[-1])

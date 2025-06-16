@@ -7,6 +7,7 @@ from .attention import Attention, UnifiedSpatioTemporalAttention
 from .memory import ShortTermMemory, LongTermMemory, UltraShortTermAttention
 from .heads import TravelTimeHead, CrowdingHead, mse_loss, cross_entropy_loss
 from .model import CoSTGFormer
+from .trainer import Trainer
 
 __all__ = [
     "DataModule",
@@ -24,4 +25,5 @@ __all__ = [
     "mse_loss",
     "cross_entropy_loss",
     "CoSTGFormer",
+    "Trainer",
 ]
