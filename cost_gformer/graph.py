@@ -96,13 +96,15 @@ class DynamicGraphHandler:
         return e / e.sum(axis=1, keepdims=True)
 
     def _prune(self, adj: np.ndarray) -> np.ndarray:
-        n = adj.shape[0]
+        n, m = adj.shape
+        k = min(self.top_p, m)
+
+        # Get indices of the top-``k`` entries per row all at once.
+        idx = np.argpartition(-adj, k - 1, axis=1)[:, :k]
+
         out = np.zeros_like(adj)
-        for i in range(n):
-            row = adj[i]
-            k = min(self.top_p, row.size)
-            idx = np.argpartition(-row, k - 1)[:k]
-            out[i, idx] = row[idx]
+        rows = np.arange(n)[:, None]
+        out[rows, idx] = adj[rows, idx]
         return out
 
     # ------------------------------------------------------------------
