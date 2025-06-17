@@ -203,11 +203,10 @@ class Trainer:
             cr_acc += acc * edges.shape[0]
             n_samples += edges.shape[0]
 
-        horizon = len(future)
         if n_samples == 0:
             return torch.tensor(0.0), 0.0, 0.0, 0.0, 0
 
-        loss = total_loss / horizon
+        loss = total_loss / n_samples
         return loss, mae_tt / n_samples, rmse_tt / n_samples, cr_acc / n_samples, n_samples
 
     # --------------------------------------------------------------
