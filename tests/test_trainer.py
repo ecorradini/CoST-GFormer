@@ -5,7 +5,9 @@ from cost_gformer.trainer import Trainer
 
 
 def test_trainer_basic():
-    dataset = generate_synthetic_dataset(num_nodes=3, num_snapshots=7, seed=0)
+    dataset = generate_synthetic_dataset(
+        num_nodes=3, num_snapshots=7, dynamic_dim=2, seed=0
+    )
     data = DataModule(dataset, history=2, horizon=1)
     model = CoSTGFormer()
     w_before = model.travel_head.mlp.w1.clone()
@@ -15,7 +17,9 @@ def test_trainer_basic():
 
 
 def test_trainer_multistep():
-    dataset = generate_synthetic_dataset(num_nodes=3, num_snapshots=8, seed=1)
+    dataset = generate_synthetic_dataset(
+        num_nodes=3, num_snapshots=8, dynamic_dim=2, seed=1
+    )
     data = DataModule(dataset, history=2, horizon=2)
     model = CoSTGFormer()
     trainer = Trainer(model=model, data=data, epochs=1, batch_size=1)
