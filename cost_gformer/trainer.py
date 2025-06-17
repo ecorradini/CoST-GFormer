@@ -233,7 +233,7 @@ class Trainer:
                 tt_rmse += rmse * n
                 cr_acc += acc * n
             if batch_samples > 0:
-                batch_loss.backward()
+                (batch_loss / batch_samples).backward()
                 self.optimizer.step()
         if self.scheduler is not None:
             self.scheduler.step()
