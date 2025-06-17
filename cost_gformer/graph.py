@@ -24,22 +24,31 @@ class ExpandedGraph:
         self.num_nodes = num_nodes
         self.num_steps = len(snapshots)
 
-        self.edges: List[Tuple[int, int]] = []
+        # Precompute spatio-temporal edges once during construction
+        self.edges: np.ndarray | None = None
         self._build_edges()
 
     # ------------------------------------------------------------------
     def _build_edges(self) -> None:
         n = self.num_nodes
         T = self.num_steps
-        for t, snap in enumerate(self.snapshots):
-            base = t * n
-            for (u, v) in snap.edges:
-                self.edges.append((base + u, base + v))
-        for t in range(T - 1):
-            base = t * n
-            next_base = (t + 1) * n
-            for v in range(n):
-                self.edges.append((base + v, next_base + v))
+
+        spatial = [
+            (t * n + u, t * n + v)
+            for t, snap in enumerate(self.snapshots)
+            for (u, v) in snap.edges
+        ]
+
+        temporal = [
+            (t * n + v, (t + 1) * n + v)
+            for t in range(T - 1)
+            for v in range(n)
+        ]
+
+        self.edges = np.concatenate(
+            [np.array(spatial, dtype=np.int64), np.array(temporal, dtype=np.int64)],
+            axis=0,
+        )
 
     # ------------------------------------------------------------------
     @property
@@ -47,8 +56,9 @@ class ExpandedGraph:
         return self.num_nodes * self.num_steps
 
     def edge_index(self) -> np.ndarray:
-        arr = np.array(self.edges, dtype=np.int64).T
-        return arr
+        if self.edges is None:
+            return np.empty((2, 0), dtype=np.int64)
+        return np.asarray(self.edges, dtype=np.int64).T
 
 
 class DynamicGraphHandler:
