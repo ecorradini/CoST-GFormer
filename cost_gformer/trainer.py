@@ -123,16 +123,9 @@ class Trainer:
             self.model.embedding = self.stm
 
         # Collect trainable parameters
-        params = [
-            self.model.travel_head.mlp.w1,
-            self.model.travel_head.mlp.b1,
-            self.model.travel_head.mlp.w2,
-            self.model.travel_head.mlp.b2,
-            self.model.crowd_head.mlp.w1,
-            self.model.crowd_head.mlp.b1,
-            self.model.crowd_head.mlp.w2,
-            self.model.crowd_head.mlp.b2,
-        ]
+        params = list(self.model.travel_head.mlp.parameters()) + list(
+            self.model.crowd_head.mlp.parameters()
+        )
         for p in params:
             p.requires_grad_(True)
         self.optimizer = torch.optim.Adam(params, lr=self.lr)
@@ -144,6 +137,18 @@ class Trainer:
             )
         else:
             self.scheduler = None
+
+        # Optionally enable data parallelism
+        if self.device.type == "cuda" and torch.cuda.device_count() > 1:
+            self.tt_mlp = torch.nn.DataParallel(self.model.travel_head.mlp)
+            self.cr_mlp = torch.nn.DataParallel(self.model.crowd_head.mlp)
+        else:
+            self.tt_mlp = self.model.travel_head.mlp
+            self.cr_mlp = self.model.crowd_head.mlp
+
+        # Move modules to the selected device
+        self.tt_mlp.to(self.device)
+        self.cr_mlp.to(self.device)
 
     # --------------------------------------------------------------
     def _forward_multi(
@@ -178,12 +183,12 @@ class Trainer:
             idx_v = edges[:, 1]
             pairs = torch.cat([current[idx_u], current[idx_v]], dim=1)
 
-            pred_tt = self.model.travel_head.mlp(pairs).squeeze(-1)
+            pred_tt = self.tt_mlp(pairs).squeeze(-1)
             l_tt = F.mse_loss(pred_tt, tt_tgt)
             step_mae = F.l1_loss(pred_tt, tt_tgt).item()
             step_rmse = torch.sqrt(F.mse_loss(pred_tt, tt_tgt)).item()
 
-            logits = self.model.crowd_head.mlp(pairs)
+            logits = self.cr_mlp(pairs)
             if self.classification:
                 l_cr = F.cross_entropy(logits, cr_tgt.long())
                 acc = (logits.argmax(dim=1) == cr_tgt).float().mean().item()

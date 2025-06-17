@@ -8,21 +8,22 @@ embeddings of the two end nodes of each edge.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import numpy as np
 import torch
+from torch import nn
 
 
-@dataclass
-class MLP:
+class MLP(nn.Module):
     """Simple two-layer multilayer perceptron."""
 
-    w1: torch.Tensor
-    b1: torch.Tensor
-    w2: torch.Tensor
-    b2: torch.Tensor
+    def __init__(self, w1: torch.Tensor, b1: torch.Tensor, w2: torch.Tensor, b2: torch.Tensor) -> None:
+        super().__init__()
+        self.w1 = nn.Parameter(w1)
+        self.b1 = nn.Parameter(b1)
+        self.w2 = nn.Parameter(w2)
+        self.b2 = nn.Parameter(b2)
 
-    def __call__(self, x: "np.ndarray | torch.Tensor") -> "np.ndarray | torch.Tensor":
+    def forward(self, x: "np.ndarray | torch.Tensor") -> "np.ndarray | torch.Tensor":
         if isinstance(x, np.ndarray):
             x_t = torch.from_numpy(x).to(self.w1.device)
             hidden = torch.relu(x_t @ self.w1 + self.b1)
