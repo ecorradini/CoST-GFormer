@@ -126,7 +126,7 @@ def parse_vehicle_positions(path: str) -> Dict[Tuple[str, int], float]:
             continue
 
         if vp.HasField("occupancy_percentage"):
-            value = float(vp.occupancy_percentage)
+            value = float(vp.occupancy_percentage) / 100.0
         elif vp.HasField("occupancy_status"):
             value = float(int(vp.occupancy_status))
         else:

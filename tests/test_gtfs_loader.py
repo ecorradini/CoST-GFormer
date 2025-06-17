@@ -1,10 +1,21 @@
 import csv
 from pathlib import Path
+import importlib.util
+import types
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+pkg = types.ModuleType("cost_gformer")
+pkg.__path__ = [str(ROOT / "cost_gformer")]
+sys.modules["cost_gformer"] = pkg
 
-from cost_gformer.gtfs import load_gtfs
+spec = importlib.util.spec_from_file_location(
+    "cost_gformer.gtfs", ROOT / "cost_gformer" / "gtfs.py"
+)
+gtfs = importlib.util.module_from_spec(spec)
+sys.modules["cost_gformer.gtfs"] = gtfs
+spec.loader.exec_module(gtfs)
+load_gtfs = gtfs.load_gtfs
 
 from google.transit import gtfs_realtime_pb2
 
@@ -81,4 +92,5 @@ def test_load_gtfs_with_occupancy(tmp_path: Path) -> None:
     feat = snap0.dynamic_edge_feat[(0, 1)]
     assert feat.shape[0] == 2
     assert float(feat[0]) == 30.0
-    assert float(feat[1]) == 55.0
+    assert 0.0 <= float(feat[1]) <= 1.0
+    assert abs(float(feat[1]) - 0.55) < 1e-6
