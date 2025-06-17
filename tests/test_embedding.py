@@ -36,3 +36,30 @@ def test_dense_embedding_and_window():
     window = stm.encode_window(dataset.snapshots)
     assert window.shape == (2, 4, stm.mlp.b2.numel())
     assert window.dtype == np.float32
+
+
+def test_dynamic_aggregation_consistency():
+    dataset = generate_synthetic_dataset(num_nodes=5, num_snapshots=1, seed=42)
+    snap = dataset[0]
+    dyn_dim = len(next(iter(snap.dynamic_edge_feat.values())))
+    stm = SpatioTemporalEmbedding(
+        num_nodes=5,
+        static_edges=snap.edges,
+        dynamic_dim=dyn_dim,
+        use_sparse=False,
+    )
+
+    agg = stm._aggregate_dynamic(snap)
+
+    ref = np.zeros((5, dyn_dim), dtype=np.float32)
+    count = np.zeros(5, dtype=np.float32)
+    for u, v in snap.edges:
+        feat = snap.dynamic_edge_feat[(u, v)]
+        ref[u] += feat
+        ref[v] += feat
+        count[u] += 1
+        count[v] += 1
+    count[count == 0] = 1.0
+    ref /= count[:, None]
+
+    assert np.allclose(agg.numpy(), ref)

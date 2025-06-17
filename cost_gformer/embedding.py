@@ -129,14 +129,23 @@ class SpatioTemporalEmbedding:
         return enc.to(torch.float32)
 
     def _aggregate_dynamic(self, snapshot: GraphSnapshot) -> torch.Tensor:
+        # Convert edges and their dynamic features to dense tensors upfront.
+        edges = torch.tensor(snapshot.edges, dtype=torch.long)
+        feats = torch.stack(
+            [torch.from_numpy(snapshot.dynamic_edge_feat[(int(u), int(v))]) for u, v in snapshot.edges],
+            dim=0,
+        )
+
         agg = torch.zeros((self.num_nodes, self.dynamic_dim), dtype=torch.float32)
         count = torch.zeros(self.num_nodes, dtype=torch.float32)
-        for (u, v) in snapshot.edges:
-            feat = torch.from_numpy(snapshot.dynamic_edge_feat[(u, v)])
-            agg[u] += feat
-            agg[v] += feat
-            count[u] += 1
-            count[v] += 1
+
+        # Sum features and counts using ``index_add_`` for efficiency.
+        agg.index_add_(0, edges[:, 0], feats)
+        agg.index_add_(0, edges[:, 1], feats)
+        ones = torch.ones(edges.size(0), dtype=torch.float32)
+        count.index_add_(0, edges[:, 0], ones)
+        count.index_add_(0, edges[:, 1], ones)
+
         count[count == 0] = 1.0
         agg /= count[:, None]
         return agg
