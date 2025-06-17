@@ -188,13 +188,14 @@ class LongTermMemory:
 
             for _ in range(max(1, iters)):
                 # assign points to nearest centroid
-                dists = ((X[:, None, :] - centers[None, :, :]) ** 2).sum(dim=2)
+                dists = torch.cdist(X, centers)
                 assign = dists.argmin(dim=1)
-                # update centroids
-                for k in range(self.num_centroids):
-                    mask = assign == k
-                    if mask.any():
-                        centers[k] = X[mask].mean(dim=0)
+                # compute new centroids using scatter_add
+                sums = torch.zeros_like(centers)
+                sums.index_add_(0, assign, X)
+                counts = torch.bincount(assign, minlength=self.num_centroids).to(X.dtype).unsqueeze(1)
+                mask = counts.squeeze(1) > 0
+                centers[mask] = sums[mask] / counts[mask]
 
             self.centroids[v] = centers
 

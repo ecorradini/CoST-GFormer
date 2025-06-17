@@ -30,3 +30,14 @@ def test_ltm_build_and_retrieve():
     assert read.shape == (dim,)
     fused = ltm.fuse(0, history[-1, 0])
     assert fused.shape == (dim,)
+
+
+def test_ltm_build_with_external_embeddings():
+    num_nodes = 2
+    dim = 3
+    rng = np.random.default_rng(1)
+    history = rng.standard_normal((4, num_nodes, dim), dtype=np.float32)
+    ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=dim, num_centroids=3)
+    ltm.build(history, iters=2)
+    out = ltm.read_all(history[-1])
+    assert out.shape == (num_nodes, dim)
