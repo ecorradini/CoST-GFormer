@@ -83,3 +83,18 @@ def test_dynamic_aggregation_consistency():
     ref /= count[:, None]
 
     assert np.allclose(agg.numpy(), ref)
+
+
+def test_time_encoding_seconds():
+    enc = SpatioTemporalEmbedding._time_encoding(8 * 3600)
+    hour = torch.tensor(8.0)
+    day = torch.tensor(0.0)
+    expected = torch.stack(
+        [
+            torch.sin(2 * torch.pi * hour / 24),
+            torch.cos(2 * torch.pi * hour / 24),
+            torch.sin(2 * torch.pi * day / 7),
+            torch.cos(2 * torch.pi * day / 7),
+        ]
+    ).to(torch.float32)
+    assert torch.allclose(enc, expected)
