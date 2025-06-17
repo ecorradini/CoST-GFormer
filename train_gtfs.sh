@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Wrapper script for running CoST-GFormer training on a GTFS dataset.
-# Usage: ./train_gtfs.sh STATIC_FEED [REALTIME_FEED] [options]
+# Usage: ./train_gtfs.sh STATIC_FEED [REALTIME_FEED] [VEHICLE_FEED] [options]
 # All arguments are passed directly to the Python entry point.
 
 # Detect a Python interpreter

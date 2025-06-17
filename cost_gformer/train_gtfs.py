@@ -24,6 +24,11 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train CoST-GFormer on GTFS data")
     p.add_argument("static", help="Path to GTFS static feed")
     p.add_argument("realtime", nargs="?", help="Optional path to GTFS realtime feed")
+    p.add_argument(
+        "vehicle",
+        nargs="?",
+        help="Optional path to GTFS vehicle positions feed",
+    )
     p.add_argument("--history", type=int, default=3, help="Number of history steps")
     p.add_argument("--horizon", type=int, default=1, help="Forecast horizon")
     p.add_argument("--epochs", type=int, default=5, help="Training epochs")
@@ -75,7 +80,7 @@ def main() -> None:
             level=logging.INFO,
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
-    dataset = load_gtfs(args.static, args.realtime)
+    dataset = load_gtfs(args.static, args.realtime, args.vehicle)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
     model = CoSTGFormer(device=args.device)
     schedule = None
