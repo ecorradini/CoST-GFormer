@@ -38,6 +38,10 @@ dataset using the script in `cost_gformer/train_gtfs.py`:
 python -m cost_gformer.train_gtfs PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [PATH_TO_VEHICLE_FEED]
 ```
 
+Crowding prediction requires that edge occupancy values are available. These
+can be obtained from vehicle position feeds or supplied through a custom data
+loader.
+
 Convenience wrapper scripts are available so you don't have to type the
 full Python command each time.  On Linux or macOS run
 

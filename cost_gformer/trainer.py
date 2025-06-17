@@ -53,7 +53,11 @@ def _prepare_targets(
             raise ValueError("dynamic edge feature must contain at least one value")
         tt_vals.append(float(feat[0]))
 
-        crowd_val = float(feat[1]) if len(feat) > 1 else 0.0
+        if len(feat) < 2:
+            raise ValueError(
+                "crowding prediction enabled but dynamic edge feature lacks occupancy"
+            )
+        crowd_val = float(feat[1])
         if classification:
             label = int(crowd_val * num_classes)
             if label >= num_classes:
