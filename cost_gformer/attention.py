@@ -184,14 +184,13 @@ class UnifiedSpatioTemporalAttention:
 
         scores = phi_q @ phi_k.T
 
-        n = q.shape[0]
-        out = torch.zeros_like(q)
-        for i in range(n):
-            s = scores[i]
-            k = min(self.top_k, s.shape[0])
-            idx = torch.topk(s, k).indices
-            weights = self._softmax(s[idx])
-            out[i] = weights @ v[idx]
+        top_k = min(self.top_k, scores.shape[1])
+
+        values, indices = torch.topk(scores, top_k, dim=1)
+        weights = self._softmax(values)
+
+        selected_v = v[indices]
+        out = torch.einsum("nk,nkh->nh", weights, selected_v)
         return out
 
     # ------------------------------------------------------------------
