@@ -204,63 +204,66 @@ class Trainer:
 
     # --------------------------------------------------------------
     def train_epoch(self) -> Tuple[float, float, float, float]:
-        total = 0.0
+        total_loss = 0.0
+        total_samples = 0
         tt_mae = 0.0
         tt_rmse = 0.0
         cr_acc = 0.0
-        n_samples = 0
 
         for i in range(0, len(self.train_idx), self.batch_size):
             batch = self.train_idx[i : i + self.batch_size]
             self.optimizer.zero_grad()
             batch_loss = 0.0
+            batch_samples = 0
             for idx in batch:
                 hist, fut = self.data[idx]
                 loss, mae, rmse, acc, n = self._forward_multi(hist, fut)
                 batch_loss = batch_loss + loss
+                batch_samples += n
+                total_loss += float(loss) * n
+                total_samples += n
                 tt_mae += mae * n
                 tt_rmse += rmse * n
                 cr_acc += acc * n
-                n_samples += n
-            if n_samples > 0:
+            if batch_samples > 0:
                 batch_loss.backward()
                 self.optimizer.step()
         if self.scheduler is not None:
             self.scheduler.step()
-        if n_samples == 0:
+        if total_samples == 0:
             return 0.0, 0.0, 0.0, 0.0
         return (
-            float(batch_loss.item()) / max(1, len(self.train_idx)),
-            tt_mae / n_samples,
-            tt_rmse / n_samples,
-            cr_acc / n_samples,
+            total_loss / total_samples,
+            tt_mae / total_samples,
+            tt_rmse / total_samples,
+            cr_acc / total_samples,
         )
 
     # --------------------------------------------------------------
     def val_epoch(self) -> Tuple[float, float, float, float]:
         if not self.val_idx:
             return 0.0, 0.0, 0.0, 0.0
-        total = 0.0
+        total_loss = 0.0
+        total_samples = 0
         tt_mae = 0.0
         tt_rmse = 0.0
         cr_acc = 0.0
-        n_samples = 0
         with torch.no_grad():
             for idx in self.val_idx:
                 hist, fut = self.data[idx]
                 loss, mae, rmse, acc, n = self._forward_multi(hist, fut)
-                total += float(loss)
+                total_loss += float(loss) * n
+                total_samples += n
                 tt_mae += mae * n
                 tt_rmse += rmse * n
                 cr_acc += acc * n
-                n_samples += n
-        if n_samples == 0:
+        if total_samples == 0:
             return 0.0, 0.0, 0.0, 0.0
         return (
-            total / len(self.val_idx),
-            tt_mae / n_samples,
-            tt_rmse / n_samples,
-            cr_acc / n_samples,
+            total_loss / total_samples,
+            tt_mae / total_samples,
+            tt_rmse / total_samples,
+            cr_acc / total_samples,
         )
 
     # --------------------------------------------------------------
