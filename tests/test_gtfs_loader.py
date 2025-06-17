@@ -40,6 +40,19 @@ def _make_sample_gtfs(root: Path) -> None:
         f.write(feed.SerializeToString())
 
 
+def _make_vehicle_feed(root: Path) -> None:
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    ent = feed.entity.add()
+    ent.id = "v1"
+    vp = ent.vehicle
+    vp.trip.trip_id = "T1"
+    vp.current_stop_sequence = 2
+    vp.occupancy_percentage = 55
+    with open(root / "vp.pb", "wb") as f:
+        f.write(feed.SerializeToString())
+
+
 def test_load_gtfs(tmp_path: Path) -> None:
     _make_sample_gtfs(tmp_path)
     dataset = load_gtfs(str(tmp_path), str(tmp_path / "rt.pb"))
@@ -56,3 +69,16 @@ def test_load_gtfs(tmp_path: Path) -> None:
     assert snap1.edges == [(1, 2)]
     assert float(snap1.static_edge_feat[(1, 2)][0]) == 600.0
     assert float(snap1.dynamic_edge_feat[(1, 2)][0]) == 60.0
+
+
+def test_load_gtfs_with_occupancy(tmp_path: Path) -> None:
+    _make_sample_gtfs(tmp_path)
+    _make_vehicle_feed(tmp_path)
+    dataset = load_gtfs(
+        str(tmp_path), str(tmp_path / "rt.pb"), str(tmp_path / "vp.pb")
+    )
+    snap0 = dataset[0]
+    feat = snap0.dynamic_edge_feat[(0, 1)]
+    assert feat.shape[0] == 2
+    assert float(feat[0]) == 30.0
+    assert float(feat[1]) == 55.0
