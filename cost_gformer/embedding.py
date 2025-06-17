@@ -166,8 +166,39 @@ class SpatioTemporalEmbedding:
         return out.cpu().numpy()
 
     def encode_window(self, snaps: List[GraphSnapshot]) -> np.ndarray:
-        embeds = [torch.from_numpy(self.encode_snapshot(s)) for s in snaps]
-        return torch.stack(embeds).cpu().numpy()
+        """Encode a sequence of snapshots in a single pass.
+
+        Parameters
+        ----------
+        snaps:
+            Ordered list of :class:`GraphSnapshot` objects.
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape ``(len(snaps), num_nodes, embed_dim)`` containing the
+            embeddings for each snapshot.
+        """
+
+        n_steps = len(snaps)
+        embed_dim = self.mlp.b2.numel()
+
+        out = torch.empty(
+            (n_steps, self.num_nodes, embed_dim),
+            device=self.device,
+            dtype=torch.float32,
+        )
+
+        spectral = self.spectral.to(self.device)
+        for i, snap in enumerate(snaps):
+            time_vec = self._time_encoding(snap.time).to(self.device)
+            dyn = self._aggregate_dynamic(snap).to(self.device)
+
+            time_mat = time_vec.repeat(self.num_nodes, 1)
+            x = torch.cat([spectral, time_mat, dyn], dim=1)
+            out[i] = self.mlp(x)
+
+        return out.cpu().numpy()
 
 
 # Backwards compatibility -------------------------------------------------
