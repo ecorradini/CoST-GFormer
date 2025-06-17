@@ -5,7 +5,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cost_gformer.graph import DynamicGraphHandler
+from cost_gformer.graph import DynamicGraphHandler, ExpandedGraph
+from cost_gformer.data import generate_synthetic_dataset
 
 
 def test_live_edge_updates():
@@ -38,3 +39,15 @@ def test_live_edge_updates():
     fused = handler.update(emb)
     assert fused.shape == (3, 3)
     assert fused[1, 2] == 0.0
+
+
+def test_expanded_graph_edge_shape():
+    dataset = generate_synthetic_dataset(num_nodes=3, num_snapshots=4, seed=0)
+    history = dataset.snapshots[:3]
+    graph = ExpandedGraph(history, num_nodes=3)
+    edge_idx = graph.edge_index()
+
+    n = 3
+    T = 3
+    expected = T * n * (n - 1) + (T - 1) * n
+    assert edge_idx.shape == (2, expected)
