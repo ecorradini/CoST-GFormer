@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 
 import logging
+import numpy as np
+import torch
 
 from cost_gformer.gtfs import load_gtfs
 from cost_gformer.data import DataModule
@@ -34,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=5, help="Training epochs")
     p.add_argument("--lr", type=float, default=0.01, help="Learning rate")
     p.add_argument("--batch-size", type=int, default=1, help="Batch size")
+    p.add_argument("--patience", type=int, default=0, help="Early stopping patience")
+    p.add_argument("--seed", type=int, default=0, help="Random seed")
     p.add_argument(
         "--lr-step-size",
         type=int,
@@ -80,6 +84,8 @@ def main() -> None:
             level=logging.INFO,
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     dataset = load_gtfs(args.static, args.realtime, args.vehicle)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
     model = CoSTGFormer(device=args.device)
@@ -95,6 +101,8 @@ def main() -> None:
         classification=not args.regression,
         lr_schedule=schedule,
         device=args.device,
+        patience=args.patience,
+        seed=args.seed,
     )
     trainer.fit()
 

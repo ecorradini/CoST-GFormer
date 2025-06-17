@@ -89,9 +89,12 @@ class Trainer:
     classification: bool = True
     lr_schedule: Dict[str, float] | None = None
     device: str | torch.device = "cpu"
+    patience: int = 0
+    seed: int = 0
 
     def __post_init__(self) -> None:
         self.device = torch.device(self.device)
+        torch.manual_seed(self.seed)
         n = len(self.data)
         split = int(n * 0.8)
         self.train_idx = list(range(0, split))
@@ -123,6 +126,7 @@ class Trainer:
                 static_edges=all_edges,
                 dynamic_dim=dyn_dim,
                 device=self.device,
+                seed=self.seed,
             )
             self.model.embedding = self.stm
 
@@ -284,6 +288,8 @@ class Trainer:
         if tqdm is not None:
             pbar = tqdm(epoch_iter, desc="Epochs")
             epoch_iter = pbar
+        best = float("inf")
+        bad_epochs = 0
         for epoch in epoch_iter:
             t_loss, t_mae, t_rmse, t_acc = self.train_epoch()
             v_loss, v_mae, v_rmse, v_acc = self.val_epoch()
@@ -304,6 +310,15 @@ class Trainer:
             logger.info(msg)
             if pbar is not None:
                 pbar.set_postfix(train_loss=t_loss, val_loss=v_loss)
+
+            if v_loss < best:
+                best = v_loss
+                bad_epochs = 0
+            else:
+                bad_epochs += 1
+                if self.patience > 0 and bad_epochs >= self.patience:
+                    logger.info("Early stopping triggered")
+                    break
 
 
 __all__ = ["Trainer"]

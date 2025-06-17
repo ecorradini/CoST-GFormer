@@ -50,11 +50,13 @@ class SpatioTemporalEmbedding:
         hidden_dim: int = 64,
         device: str | torch.device = "cpu",
         use_sparse: bool = True,
+        seed: int = 0,
     ) -> None:
         self.num_nodes = num_nodes
         self.dynamic_dim = dynamic_dim
         self.device = torch.device(device)
         self.use_sparse = use_sparse
+        self.seed = seed
 
         if self.use_sparse and num_nodes > spectral_dim + 1:
             import scipy.sparse as sp
@@ -104,7 +106,8 @@ class SpatioTemporalEmbedding:
         spectral_dim = sdim
 
         in_dim = spectral_dim + 4 + dynamic_dim
-        g = torch.Generator().manual_seed(0)
+        g = torch.Generator().manual_seed(self.seed)
+        torch.manual_seed(self.seed)
         w1 = torch.randn((in_dim, hidden_dim), generator=g, dtype=torch.float32) / torch.sqrt(torch.tensor(in_dim, dtype=torch.float32))
         b1 = torch.zeros(hidden_dim, dtype=torch.float32)
         w2 = torch.randn((hidden_dim, embed_dim), generator=g, dtype=torch.float32) / torch.sqrt(torch.tensor(hidden_dim, dtype=torch.float32))

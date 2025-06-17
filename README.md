@@ -65,6 +65,11 @@ Key command line options include:
 - `--lr` – learning rate for the SGD trainer.
 - `--device` – choose `cpu` or `cuda`.
 - `--regression` – use regression instead of classification for crowd level.
+- `--patience` – stop training if validation loss doesn't improve for N epochs.
+- `--seed` – random seed for reproducible initialisation.
+
+Use the seed option to reproduce experiments across runs as it affects weight
+initialisation and dataset shuffling.
 
 The spatio-temporal embedding module also exposes a `use_sparse` flag. When
 enabled (the default) and the graph is large, spectral coordinates are computed
