@@ -28,11 +28,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _prepare_targets(
-    snap: GraphSnapshot, num_classes: int, classification: bool
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    edges: List[Tuple[int, int]] = []
-    tt: List[float] = []
-    cr: List[int | float] = []
+    snap: GraphSnapshot,
+    num_classes: int,
+    classification: bool,
+    device: str | torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Collect targets for a ``GraphSnapshot`` as tensors on ``device``."""
+
+    edge_list: List[Tuple[int, int]] = []
+    tt_vals: List[float] = []
+    cr_vals: List[int | float] = []
+
     for e in snap.edges:
         feat = snap.dynamic_edge_feat.get(e)
         if feat is None or len(feat) == 0:
@@ -40,33 +46,30 @@ def _prepare_targets(
             # training.  This mirrors the behaviour of ``encode_snapshot``
             # which uses zeros when no features are available.
             continue
-        edges.append(e)
+        edge_list.append(e)
 
         # Always expect at least one dynamic feature for travel/ delay time
         if len(feat) < 1:
             raise ValueError("dynamic edge feature must contain at least one value")
-        tt.append(float(feat[0]))
+        tt_vals.append(float(feat[0]))
 
-        # Handle optional crowd targets gracefully.  If the feature vector
-        # contains fewer than two elements we default to 0 as no crowd data is
-        # available.
         crowd_val = float(feat[1]) if len(feat) > 1 else 0.0
-
         if classification:
             label = int(crowd_val * num_classes)
             if label >= num_classes:
                 label = num_classes - 1
-            cr.append(label)
+            cr_vals.append(label)
         else:
-            cr.append(crowd_val)
-    arr_edges = np.array(edges, dtype=np.int64)
-    tt_tgt = np.array(tt, dtype=np.float32)
-    cr_tgt = (
-        np.array(cr, dtype=np.int64)
-        if classification
-        else np.array(cr, dtype=np.float32)
-    )
-    return arr_edges, tt_tgt, cr_tgt
+            cr_vals.append(crowd_val)
+
+    edges = torch.tensor(edge_list, dtype=torch.int64, device=device)
+    tt_tgt = torch.tensor(tt_vals, dtype=torch.float32, device=device)
+    if classification:
+        cr_tgt = torch.tensor(cr_vals, dtype=torch.int64, device=device)
+    else:
+        cr_tgt = torch.tensor(cr_vals, dtype=torch.float32, device=device)
+
+    return edges, tt_tgt, cr_tgt
 
 
 # ---------------------------------------------------------------------------
@@ -163,37 +166,37 @@ class Trainer:
         for i, snap in enumerate(future):
             current = embeds[start + i]
             edges, tt_tgt, cr_tgt = _prepare_targets(
-                snap, self.model.crowd_head.num_classes, self.classification
+                snap,
+                self.model.crowd_head.num_classes,
+                self.classification,
+                self.device,
             )
-            if len(edges) == 0:
+            if edges.numel() == 0:
                 continue
 
-            idx_u = torch.tensor(edges[:, 0], device=self.device)
-            idx_v = torch.tensor(edges[:, 1], device=self.device)
+            idx_u = edges[:, 0]
+            idx_v = edges[:, 1]
             pairs = torch.cat([current[idx_u], current[idx_v]], dim=1)
 
             pred_tt = self.model.travel_head.mlp(pairs).squeeze(-1)
-            tt_tgt_t = torch.from_numpy(tt_tgt).to(self.device)
-            l_tt = F.mse_loss(pred_tt, tt_tgt_t)
-            step_mae = F.l1_loss(pred_tt, tt_tgt_t).item()
-            step_rmse = torch.sqrt(F.mse_loss(pred_tt, tt_tgt_t)).item()
+            l_tt = F.mse_loss(pred_tt, tt_tgt)
+            step_mae = F.l1_loss(pred_tt, tt_tgt).item()
+            step_rmse = torch.sqrt(F.mse_loss(pred_tt, tt_tgt)).item()
 
             logits = self.model.crowd_head.mlp(pairs)
             if self.classification:
-                cr_t = torch.from_numpy(cr_tgt).long().to(self.device)
-                l_cr = F.cross_entropy(logits, cr_t)
-                acc = (logits.argmax(dim=1) == cr_t).float().mean().item()
+                l_cr = F.cross_entropy(logits, cr_tgt.long())
+                acc = (logits.argmax(dim=1) == cr_tgt).float().mean().item()
             else:
-                cr_t = torch.from_numpy(cr_tgt).to(self.device)
                 pred = logits.squeeze(-1)
-                l_cr = F.mse_loss(pred, cr_t)
+                l_cr = F.mse_loss(pred, cr_tgt)
                 acc = 0.0
 
             total_loss = total_loss + l_tt + l_cr
-            mae_tt += step_mae * len(edges)
-            rmse_tt += step_rmse * len(edges)
-            cr_acc += acc * len(edges)
-            n_samples += len(edges)
+            mae_tt += step_mae * edges.shape[0]
+            rmse_tt += step_rmse * edges.shape[0]
+            cr_acc += acc * edges.shape[0]
+            n_samples += edges.shape[0]
 
         horizon = len(future)
         if n_samples == 0:
