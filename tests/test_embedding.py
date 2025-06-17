@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import pytest
 
 from cost_gformer.embedding import SpatioTemporalEmbedding
 from cost_gformer.data import generate_synthetic_dataset
@@ -35,7 +36,26 @@ def test_dense_embedding_and_window():
     assert emb.shape == (4, stm.mlp.b2.numel())
     window = stm.encode_window(dataset.snapshots)
     assert window.shape == (2, 4, stm.mlp.b2.numel())
+    expected = np.stack([stm.encode_snapshot(s) for s in dataset.snapshots])
+    np.testing.assert_allclose(window, expected, rtol=1e-6, atol=1e-7)
     assert window.dtype == np.float32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="cuda not available")
+def test_encode_window_cuda():
+    dataset = generate_synthetic_dataset(num_nodes=3, num_snapshots=2, seed=3)
+    edges = dataset[0].edges
+    dyn_dim = len(next(iter(dataset[0].dynamic_edge_feat.values())))
+    stm = SpatioTemporalEmbedding(
+        num_nodes=3,
+        static_edges=edges,
+        dynamic_dim=dyn_dim,
+        use_sparse=False,
+        device="cuda",
+    )
+    window = stm.encode_window(dataset.snapshots)
+    expected = np.stack([stm.encode_snapshot(s) for s in dataset.snapshots])
+    np.testing.assert_allclose(window, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_dynamic_aggregation_consistency():
