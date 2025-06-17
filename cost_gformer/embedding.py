@@ -116,8 +116,8 @@ class SpatioTemporalEmbedding:
     # ------------------------------------------------------------------
     @staticmethod
     def _time_encoding(t: int) -> torch.Tensor:
-        hour = torch.tensor(float(t % 24))
-        day = torch.tensor(float(t % 7))
+        hour = torch.tensor(float((t // 3600) % 24))
+        day = torch.tensor(float((t // 86400) % 7))
         enc = torch.stack(
             [
                 torch.sin(2 * torch.pi * hour / 24),

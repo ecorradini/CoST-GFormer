@@ -38,6 +38,9 @@ dataset using the script in `cost_gformer/train_gtfs.py`:
 python -m cost_gformer.train_gtfs PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [PATH_TO_VEHICLE_FEED]
 ```
 
+Snapshot times throughout the library are expressed in seconds past midnight.
+For example `08:00` would be represented as `8 * 3600`.
+
 Crowding prediction requires that edge occupancy values are available. These
 can be obtained from vehicle position feeds or supplied through a custom data
 loader.
