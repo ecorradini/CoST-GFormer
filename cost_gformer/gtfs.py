@@ -151,6 +151,16 @@ def build_snapshots(
     delays = delays or {}
     occupancies = occupancies or {}
 
+    if occupancies:
+        unique_occ = {float(v) for v in occupancies.values()}
+        if len(unique_occ) <= 1:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "All occupancy values are identical; crowding accuracy will remain 1.0"
+            )
+
     by_time: Dict[int, List[Segment]] = {}
     for seg in segments:
         by_time.setdefault(seg.depart, []).append(seg)
