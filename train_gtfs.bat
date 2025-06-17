@@ -1,6 +1,6 @@
 @echo off
 REM Wrapper script for running CoST-GFormer training on a GTFS dataset.
-REM Usage: train_gtfs.bat STATIC_FEED [REALTIME_FEED] [options]
+REM Usage: train_gtfs.bat STATIC_FEED [REALTIME_FEED] [VEHICLE_FEED] [options]
 
 SET PYTHON=python
 where python3 >nul 2>&1

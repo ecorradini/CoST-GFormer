@@ -35,20 +35,20 @@ You can train the model on a GTFS (General Transit Feed Specification)
 dataset using the script in `cost_gformer/train_gtfs.py`:
 
 ```bash
-python -m cost_gformer.train_gtfs PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED]
+python -m cost_gformer.train_gtfs PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [PATH_TO_VEHICLE_FEED]
 ```
 
 Convenience wrapper scripts are available so you don't have to type the
 full Python command each time.  On Linux or macOS run
 
 ```bash
-./train_gtfs.sh PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [options]
+./train_gtfs.sh PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [PATH_TO_VEHICLE_FEED] [options]
 ```
 
 On Windows use
 
 ```
-train_gtfs.bat PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [options]
+train_gtfs.bat PATH_TO_STATIC_FEED [PATH_TO_REALTIME_FEED] [PATH_TO_VEHICLE_FEED] [options]
 ```
 
 Key command line options include:

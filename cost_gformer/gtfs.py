@@ -101,6 +101,42 @@ def parse_gtfs_realtime(path: str) -> Dict[Tuple[str, int], int]:
     return delays
 
 
+def parse_vehicle_positions(path: str) -> Dict[Tuple[str, int], float]:
+    """Parse GTFS real-time VehiclePosition occupancies."""
+
+    feed = gtfs_realtime_pb2.FeedMessage()
+    with open(path, "rb") as f:
+        feed.ParseFromString(f.read())
+
+    occupancies: Dict[Tuple[str, int], float] = {}
+    for ent in feed.entity:
+        if not ent.HasField("vehicle"):
+            continue
+        vp = ent.vehicle
+        trip_id = vp.trip.trip_id
+        if not trip_id:
+            continue
+
+        seq = 0
+        if vp.current_stop_sequence > 0:
+            seq = vp.current_stop_sequence
+        elif vp.stop_id:
+            seq = 0  # unknown sequence
+        if seq <= 0:
+            continue
+
+        if vp.HasField("occupancy_percentage"):
+            value = float(vp.occupancy_percentage)
+        elif vp.HasField("occupancy_status"):
+            value = float(int(vp.occupancy_status))
+        else:
+            value = 0.0
+
+        occupancies[(trip_id, seq - 1)] = value
+
+    return occupancies
+
+
 # ---------------------------------------------------------------------------
 # Main conversion function
 # ---------------------------------------------------------------------------
@@ -108,10 +144,12 @@ def parse_gtfs_realtime(path: str) -> Dict[Tuple[str, int], int]:
 def build_snapshots(
     segments: Iterable[Segment],
     delays: Optional[Dict[Tuple[str, int], int]] = None,
+    occupancies: Optional[Dict[Tuple[str, int], float]] = None,
 ) -> DynamicGraphDataset:
     """Convert segments to :class:`DynamicGraphDataset`."""
 
     delays = delays or {}
+    occupancies = occupancies or {}
 
     by_time: Dict[int, List[Segment]] = {}
     for seg in segments:
@@ -128,7 +166,8 @@ def build_snapshots(
             travel = seg.arrive - seg.depart
             static_feat[e] = np.array([float(travel)], dtype=np.float32)
             delay = float(delays.get((seg.trip_id, seg.stop_seq), 0))
-            dyn_feat[e] = np.array([delay], dtype=np.float32)
+            occ = float(occupancies.get((seg.trip_id, seg.stop_seq), 0.0))
+            dyn_feat[e] = np.array([delay, occ], dtype=np.float32)
         snap = GraphSnapshot(
             time=t,
             edges=edges,
@@ -140,17 +179,23 @@ def build_snapshots(
     return DynamicGraphDataset(snapshots)
 
 
-def load_gtfs(static_path: str, realtime_path: Optional[str] = None) -> DynamicGraphDataset:
+def load_gtfs(
+    static_path: str,
+    realtime_path: Optional[str] = None,
+    vehicle_path: Optional[str] = None,
+) -> DynamicGraphDataset:
     """High level loader for GTFS feeds."""
 
     _, segments = parse_gtfs_static(static_path)
     delays = parse_gtfs_realtime(realtime_path) if realtime_path else None
-    return build_snapshots(segments, delays)
+    occ = parse_vehicle_positions(vehicle_path) if vehicle_path else None
+    return build_snapshots(segments, delays, occ)
 
 
 __all__ = [
     "parse_gtfs_static",
     "parse_gtfs_realtime",
+    "parse_vehicle_positions",
     "build_snapshots",
     "load_gtfs",
 ]
