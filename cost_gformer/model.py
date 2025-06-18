@@ -26,6 +26,7 @@ class CoSTGFormer:
         embedding: Embedding | None = None,
         num_nodes: int | None = None,
         device: str | torch.device = "cpu",
+        crowd_classes: int = 3,
     ):
         self.embedding = embedding
         embed_dim = self.embedding.mlp.b2.numel() if embedding else 32
@@ -39,7 +40,7 @@ class CoSTGFormer:
             self.ltm = LongTermMemory(num_nodes=num_nodes, embed_dim=embed_dim)
 
         self.travel_head = TravelTimeHead(embed_dim, device=device)
-        self.crowd_head = CrowdingHead(embed_dim, device=device)
+        self.crowd_head = CrowdingHead(embed_dim, num_classes=crowd_classes, device=device)
 
     def forward(self, history: "list[GraphSnapshot]", horizon: int = 1):
         """Predict travel time and crowding for ``horizon`` future steps.

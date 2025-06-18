@@ -88,7 +88,8 @@ def main() -> None:
     np.random.seed(args.seed)
     dataset = load_gtfs(args.static, args.realtime, args.vehicle)
     data = DataModule(dataset, history=args.history, horizon=args.horizon)
-    model = CoSTGFormer(device=args.device)
+    crowd_classes = 1 if args.regression else 3
+    model = CoSTGFormer(device=args.device, crowd_classes=crowd_classes)
     schedule = None
     if args.lr_step_size > 0:
         schedule = {"step_size": args.lr_step_size, "gamma": args.lr_gamma}
